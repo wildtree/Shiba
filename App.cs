@@ -33,9 +33,16 @@ public sealed class App
     float _padKeepAlive;
 
     readonly int _startStage;
+    readonly bool _startBonus;
+    int _bonusStartScore;
 
     /// <param name="startStage">ゲーム開始時のステージ (テストプレイ用。通常は1)</param>
-    public App(int startStage = 1) => _startStage = Math.Max(1, startStage);
+    /// <param name="startBonus">ボーナスステージから始める (テストプレイ用)</param>
+    public App(int startStage = 1, bool startBonus = false)
+    {
+        _startStage = Math.Max(1, startStage);
+        _startBonus = startBonus;
+    }
 
     public void Run()
     {
@@ -161,7 +168,7 @@ public sealed class App
                 {
                     Audio.Play(Sfx.Start);
                     _stage = _startStage; _lives = 3; _score = 0; _attract = false;
-                    BeginStage();
+                    if (_startBonus) BeginBonus(); else BeginStage();
                 }
                 else if (_t > 12) { _attract = true; _newRank = -1; Go(Scene.HiScores); }
                 break;
@@ -185,7 +192,12 @@ public sealed class App
 
             case Scene.StageIntro:
                 if (Input.Back) { ToTitle(); break; }
-                if (_t > 2.2f) { Audio.PlayMusic(Tune.Game); Go(Scene.Play); }
+                if (_t > (_world!.Bonus ? 4f : 2.2f))
+                {
+                    // 夜のボーナスステージは、ゆっくりした曲(タイトルと同じ)
+                    Audio.PlayMusic(_world.Bonus ? Tune.Title : Tune.Game);
+                    Go(Scene.Play);
+                }
                 break;
 
             case Scene.Play:
@@ -206,7 +218,8 @@ public sealed class App
                 {
                     Audio.PlayMusic(Tune.None);
                     _bonus = 0;
-                    if (w.Cleared)
+                    if (w.Bonus) Audio.Play(Sfx.StageClear);
+                    else if (w.Cleared)
                     {
                         _bonus = w.Player.Area * 5 + (int)w.TimeLeft * 10 + 500 * _stage;
                         _score += _bonus; w.Score = _score;
@@ -221,9 +234,15 @@ public sealed class App
             case Scene.StageResult:
                 if ((_t > 1.5f && Input.Confirm) || _t > 9)
                 {
-                    if (_world!.Cleared) _stage++;
-                    else _score = _stageStartScore;      // 失敗: 同じステージをやり直す
-                    BeginStage();
+                    var done = _world!;
+                    if (done.Bonus) { _stage++; BeginStage(); }                 // ボーナスの次は通常ステージ
+                    else if (done.Cleared && _stage % 4 == 0) BeginBonus();     // 4の倍数をクリアしたらボーナス
+                    else
+                    {
+                        if (done.Cleared) _stage++;
+                        else _score = _stageStartScore;      // 失敗: 同じステージをやり直す
+                        BeginStage();
+                    }
                 }
                 break;
 
@@ -254,6 +273,18 @@ public sealed class App
         _world = new World(_stage, _shiba, _lives, _score, demo: false);
         Audio.PlayMusic(Tune.None);
         Audio.Play(Sfx.Bark);
+        Input.EndFrame();
+        Go(Scene.StageIntro);
+    }
+
+    /// <summary>夜のボーナスステージ(ステージ番号なし)。直前にクリアしたステージ数ぶんの犬が眠っている。</summary>
+    void BeginBonus()
+    {
+        _bonusStartScore = _score;
+        _paused = false;
+        _world = new World(_stage, _shiba, _lives, _score, demo: false, bonus: true);
+        Audio.PlayMusic(Tune.None);
+        Audio.Play(Sfx.Start);
         Input.EndFrame();
         Go(Scene.StageIntro);
     }
@@ -410,6 +441,7 @@ public sealed class App
             Gfx.Draw(Art.Cars[c.Color], c.X, c.Row * T, flip: c.Sign > 0);
 
         DrawWeather(w);
+        if (w.Bonus) DrawNight(w);
 
         foreach (var p in w.Popups)
             Gfx.Text(p.Text, p.X, p.Y, p.Color);
@@ -453,6 +485,62 @@ public sealed class App
         }
     }
 
+    /// <summary>
+    /// 夜の暗がり。柴犬の周りと、印をつけた電柱の周り、自分のなわばりだけが明るい。
+    /// 8ドット角のタイルごとに暗さを決めて塗る(ドット絵らしい段々の明かり)。
+    /// 暗がりの上に、眠っている犬の寝息(z)と、起きた犬の光る目を描く。
+    /// </summary>
+    void DrawNight(World w)
+    {
+        var lights = new List<(float x, float y, float r)>();
+        var (ppx, ppy, _) = w.DogPixel(w.Player);
+        lights.Add((ppx + 8, ppy + 8, 64 + MathF.Sin(_clock * 3) * 2));
+        foreach (var p in w.Poles)
+            if (p.Owner == 0) lights.Add((p.X * 16 + 8, p.Y * 16 + 6, p.Locked ? 44 : 36));
+
+        const int B = 8;
+        for (int gy = 0; gy < Gfx.H / B; gy++)
+            for (int gx = 0; gx < FieldW / B; gx++)
+            {
+                float cx = gx * B + B / 2f, cy = gy * B + B / 2f;
+                float dark = 1f;
+                foreach (var (lx, ly, r) in lights)
+                {
+                    float dx = cx - lx, dy = cy - ly;
+                    float dist = MathF.Sqrt(dx * dx + dy * dy);
+                    float f = Math.Clamp((dist - r * 0.5f) / (r * 0.5f), 0f, 1f);
+                    if (f < dark) dark = f;
+                }
+                if (w.Terr[gx * B / 16, gy * B / 16] == 0) dark = Math.Min(dark, 0.35f);   // 自分のなわばりはうっすら明るい
+                dark = MathF.Round(dark * 4) / 4;      // 4段階にして段々をはっきりさせる
+                if (dark > 0) Gfx.Fill(gx * B, gy * B, B, B, 0x060A20, (byte)(dark * 208));
+            }
+
+        foreach (var d in w.Dogs)
+        {
+            if (d.IsPlayer || !d.Alive) continue;
+            var (px, py, _) = w.DogPixel(d);
+            if (d.Asleep)
+            {
+                float u = (_clock * 0.8f + d.Id * 0.37f) % 1f;
+                Gfx.Text("z", px + 10 + u * 6, py - 4 - u * 10, 0xC0D0FF, shadow: false);
+                Gfx.Text("Z", px + 14 + ((u + 0.5f) % 1f) * 6, py - 10 - ((u + 0.5f) % 1f) * 10, 0x90A8FF, shadow: false);
+            }
+            else
+            {
+                Gfx.Fill(px + 4, py + 5, 2, 2, 0xFFF060);
+                Gfx.Fill(px + 10, py + 5, 2, 2, 0xFFF060);
+            }
+        }
+
+        // 星
+        for (int i = 0; i < 14; i++)
+        {
+            float sx = (i * 131) % FieldW, sy = (i * 71) % 60;
+            if (((int)(_clock * 2 + i) % 5) != 0) Gfx.Fill(sx, sy, 1, 1, 0xFFFFE0, 200);
+        }
+    }
+
     void ChainLine(World w, int a, int b, uint color, byte alpha)
     {
         var p = w.Poles[a]; var q = w.Poles[b];
@@ -464,6 +552,12 @@ public sealed class App
     {
         if (d.Invuln > 0 && ((int)(_clock * 14) & 1) == 0) return;
         var (px, py, stride) = w.DogPixel(d);
+        if (d.Asleep)
+        {
+            // 眠っている犬: 正面向きで、寝息に合わせて少し上下する
+            Gfx.Draw(Art.Dogs[d.BreedIndex][0], px, py + (MathF.Sin(_clock * 2 + d.Id) > 0 ? 1 : 0));
+            return;
+        }
         bool vertical = d.Dir == Dir.Down || d.Dir == Dir.Up;
         int idx = (d.Dir == Dir.Down ? 0 : d.Dir == Dir.Up ? 2 : 4) + (stride ? 1 : 0);
         // 横向きの絵は右向き。左向きは反転。上下移動は一歩ごとに出す足を入れ替える
@@ -514,7 +608,8 @@ public sealed class App
         Gfx.Tint(Art.Paw, 0xFFB040);
         Gfx.Draw(Art.Paw, X, 4);
 
-        Gfx.Text($"STAGE {w.Stage:00}", X, 30, 0xFFFFFF);
+        if (w.Bonus) Gfx.Text("BONUS STAGE", X, 30, 0xFFE040);
+        else Gfx.Text($"STAGE {w.Stage:00}", X, 30, 0xFFFFFF);
         Gfx.Text("SCORE", X, 46, 0x9AA4C8); Gfx.Text($"{w.Score:0000000}", X + 88, 46);
         Gfx.Text("HI", X, 58, 0x9AA4C8); Gfx.Text($"{Math.Max(_hi.Top, w.Score):0000000}", X + 88, 58);
 
@@ -550,7 +645,11 @@ public sealed class App
             Gfx.Draw(Art.Dogs[d.BreedIndex][0], X + 2, y);
             Gfx.Tint(Art.Dogs[d.BreedIndex][0], 0xFFFFFF);
             Gfx.Text(d.Alive ? Breed.All[d.BreedIndex].Display : "OUT", X + 22, d.IsPlayer ? y + 4 : y, d.Alive ? 0xFFFFFFu : 0x808080u);
-            if (!d.IsPlayer) Gfx.Text(d.T.Trait, X + 22, y + 9, 0x7C86AC, shadow: false);
+            if (!d.IsPlayer)
+            {
+                string note = !w.Bonus ? d.T.Trait : !d.Alive ? "CAUGHT" : d.Asleep ? "ZZZ" : "AWAKE!";
+                Gfx.Text(note, X + 22, y + 9, w.Bonus && d.Alive && !d.Asleep ? 0xFFF060u : 0x7C86ACu, shadow: false);
+            }
             Gfx.Text($"{d.Area,3}", X + 120, y + 4, d.Color);
             y += 21;
         }
@@ -567,6 +666,27 @@ public sealed class App
         const float CX = FieldW / 2f;
         switch (_scene)
         {
+            case Scene.StageIntro when w.Bonus:
+                Box(100, 140, 280, 100);
+                Gfx.TextCenter("BONUS STAGE", CX, 152, 0xFFE040, 3);
+                Gfx.TextCenter("SURROUND THE SLEEPING DOGS!", CX, 188, 0xFFFFFF);
+                Gfx.TextCenter("SHH... DON'T WAKE THEM UP", CX, 202, 0xC0D0FF);
+                Gfx.TextCenter("NO LIVES LOST - 60 SECONDS", CX, 220, 0x9AA4C8);
+                break;
+
+            case Scene.StageResult when w.Bonus:
+            {
+                int enemies = w.Dogs.Count - 1;
+                Box(100, 130, 280, 140);
+                Gfx.TextCenter(w.Perfect ? "PERFECT!!" : "BONUS RESULT", CX, 142, 0xFFE040, 2);
+                Gfx.Text("TERRITORY", 124, 174); Gfx.Text($"{w.Player.Area,3} x {World.BonusCellScore}", 292, 174, 0xFFFFFF);
+                Gfx.Text("DOGS CAUGHT", 124, 190); Gfx.Text($"{w.BonusCaught} / {enemies}", 316, 190, 0xFFFFFF);
+                if (w.Perfect) Gfx.TextCenter($"PERFECT BONUS +{World.BonusPerfect}", CX, 208, 0xFFF060);
+                Gfx.TextCenter($"TOTAL +{w.Score - _bonusStartScore}", CX, 228, 0xFFE040, 2);
+                if (_t > 1.5f && ((int)(_clock * 2) & 1) == 0) Gfx.TextCenter("PRESS SPACE: NEXT STAGE", CX, 254, 0x9AA4C8);
+                break;
+            }
+
             case Scene.StageIntro:
                 Box(120, 150, 240, 70);
                 Gfx.TextCenter($"STAGE {w.Stage}", CX, 162, 0xFFFFFF, 3);
