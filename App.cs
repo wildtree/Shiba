@@ -822,7 +822,15 @@ public sealed class App
             Gfx.Draw(Art.Dogs[breed][frame], x, 336 + (frame == 5 ? -2 : 0), scale: 2);
         }
         Gfx.Fill(0, 370, Gfx.W, 30, 0x000000, 90);
-        Gfx.TextCenter("DOTNET + SDL3   2026", CX, 381, 0x90A890);
+        // "Copyright (C) 2026 wildtree with Claude AI"。内蔵フォントに (C) マークがないので、そこだけドットで描く
+        const string c1 = "Copyright", c2 = "2026 wildtree with Claude AI";
+        float cx0 = MathF.Floor(CX - (c1.Length + 1 + c2.Length) * 4);
+        Gfx.Text(c1, cx0, 381, 0x90A890);
+        string[] mark = ["..XXXX..", ".X....X.", "X..XX..X", "X.X....X", "X.X....X", "X..XX..X", ".X....X.", "..XXXX.."];
+        for (int my = 0; my < 8; my++)
+            for (int mx = 0; mx < 8; mx++)
+                if (mark[my][mx] == 'X') Gfx.Fill(cx0 + c1.Length * 8 + mx, 381 + my, 1, 1, 0x90A890);
+        Gfx.Text(c2, cx0 + (c1.Length + 1) * 8, 381, 0x90A890);
     }
 
     void DrawHiScores()
