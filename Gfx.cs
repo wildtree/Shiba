@@ -187,6 +187,8 @@ public static class Art
     /// </summary>
     public static Sprite[][] Dogs = [];
     public static Sprite Pole, PeeMark, PoleBand, Grass0, Grass1, RoadTop, RoadBottom, Paw;
+    /// <summary>[0:骨 1:巻物]</summary>
+    public static Sprite[] Items = [];
     public static Sprite[] Cars = [];
 
     public static void Load()
@@ -227,6 +229,11 @@ public static class Art
         PeeMark = Gfx.MakeSprite(Gfx.Rows(SpriteData.PeeMark), white);
         PoleBand = Gfx.MakeSprite(Gfx.Rows(SpriteData.PoleBand), white);
         Paw = Gfx.MakeSprite(Gfx.Rows(SpriteData.Paw), white);
+        var itemPal = new Dictionary<char, uint>
+        {
+            ['O'] = 0x30241C, ['W'] = 0xFFFFFF, ['w'] = 0xD8D0C0, ['P'] = 0x7A48C8, ['R'] = 0xE83838, ['y'] = 0xF0C040,
+        };
+        Items = [Gfx.MakeSprite(Gfx.Rows(SpriteData.Bone), itemPal), Gfx.MakeSprite(Gfx.Rows(SpriteData.Scroll), itemPal)];
 
         var grass = new Dictionary<char, uint>
         {

@@ -32,6 +32,11 @@ public sealed class App
     readonly Dictionary<uint, IntPtr> _pads = new();
     float _padKeepAlive;
 
+    readonly int _startStage;
+
+    /// <param name="startStage">ゲーム開始時のステージ (テストプレイ用。通常は1)</param>
+    public App(int startStage = 1) => _startStage = Math.Max(1, startStage);
+
     public void Run()
     {
         // ゲームパッド関連の設定 (SDL.Init より前に指定する)
@@ -155,7 +160,7 @@ public sealed class App
                 else if (Input.Confirm)
                 {
                     Audio.Play(Sfx.Start);
-                    _stage = 1; _lives = 3; _score = 0; _attract = false;
+                    _stage = _startStage; _lives = 3; _score = 0; _attract = false;
                     BeginStage();
                 }
                 else if (_t > 12) { _attract = true; _newRank = -1; Go(Scene.HiScores); }
@@ -386,6 +391,15 @@ public sealed class App
                 Gfx.Frame(p.X * T, p.Y * T, T, T, 0xFFFFFF);
         }
 
+        // アイテム(消える3秒前から点滅)
+        foreach (var it in w.Items)
+        {
+            if (it.T < 3f && ((int)(_clock * 8) & 1) == 0) continue;
+            float bob = MathF.Sin(_clock * 5 + it.X) * 1.5f;
+            Gfx.Fill(it.X * T + 4, it.Y * T + 13, 8, 2, 0x000000, 70);
+            Gfx.Draw(Art.Items[it.Kind], it.X * T, it.Y * T - 2 + bob);
+        }
+
         // 犬(奥から手前の順)
         var order = new List<Dog>();
         foreach (var d in w.Dogs) if (d.Alive) order.Add(d);
@@ -395,10 +409,48 @@ public sealed class App
         foreach (var c in w.Cars)
             Gfx.Draw(Art.Cars[c.Color], c.X, c.Row * T, flip: c.Sign > 0);
 
+        DrawWeather(w);
+
         foreach (var p in w.Popups)
             Gfx.Text(p.Text, p.X, p.Y, p.Color);
 
         Gfx.Unclip();
+    }
+
+    /// <summary>雨の予告(だんだん暗くなる)と、雨。効果中のアイテムの残り時間もここで出す。</summary>
+    void DrawWeather(World w)
+    {
+        const float CX = FieldW / 2f;
+        if (w.RainWarn > 0)
+        {
+            Gfx.Fill(0, 0, FieldW, Gfx.H, 0x101830, (byte)((5f - w.RainWarn) / 5f * 90));
+            if (((int)(_clock * 4) & 1) == 0) Gfx.TextCenter("RAIN IS COMING!", CX, 30, 0x80C0FF, 2);
+            Gfx.TextCenter($"{MathF.Ceiling(w.RainWarn):0}", CX, 52, 0xFFFFFF, 2);
+        }
+        else if (w.RainT > 0)
+        {
+            Gfx.Fill(0, 0, FieldW, Gfx.H, 0x101830, (byte)(Math.Min(1f, w.RainT) * 90));
+            for (int i = 0; i < 90; i++)
+            {
+                float x = (i * 97 + _clock * 60) % (FieldW + 40) - 20;
+                float y = (i * 53 + _clock * (420 + i % 5 * 30)) % (Gfx.H + 20) - 10;
+                Gfx.Fill(x, y, 1, 7, 0xB0D8FF, 170);
+            }
+        }
+
+        var pl = w.Player;
+        int hy = 4;
+        if (pl.BoneT > 0)
+        {
+            Gfx.Draw(Art.Items[0], 4, hy);
+            Gfx.Text($"{MathF.Ceiling(pl.BoneT):0}", 24, hy + 4, 0xFFFFFF);
+            hy += 18;
+        }
+        if (pl.PassT > 0)
+        {
+            Gfx.Draw(Art.Items[1], 4, hy);
+            Gfx.Text($"{MathF.Ceiling(pl.PassT):0}", 24, hy + 4, 0xC0A0FF);
+        }
     }
 
     void ChainLine(World w, int a, int b, uint color, byte alpha)
@@ -422,7 +474,13 @@ public sealed class App
             idx = d.Dir switch { Dir.Up => 7, Dir.Down => 8, _ => 6 };
             flip = d.Dir == Dir.Left || d.Dir == Dir.Up;
         }
-        Gfx.Draw(Art.Dogs[d.BreedIndex][idx], px, py, flip);
+        var sprite = Art.Dogs[d.BreedIndex][idx];
+        // 巻物の効果中は半透明(切れる3秒前から点滅)
+        bool ghost = d.PassT > 0 && !d.Boss;
+        if (ghost) Gfx.Tint(sprite, 0xD8C8FF, d.PassT < 3f && ((int)(_clock * 10) & 1) == 0 ? (byte)230 : (byte)130);
+        if (d.Boss) Gfx.Draw(sprite, px - 8, py - 16, flip, scale: 2);   // ボスは2倍の大きさ(足元をマスに合わせる)
+        else Gfx.Draw(sprite, px, py, flip);
+        if (ghost) Gfx.Tint(sprite, 0xFFFFFF, 255);
 
         if (d.PeeT > 0 && d.PeePole >= 0)
         {
@@ -434,7 +492,7 @@ public sealed class App
                 float u = (_clock * 3f + k / 3f) % 1f;
                 Gfx.Fill(sx + (tx - sx) * u - 1, sy + (ty - sy) * u - MathF.Sin(u * MathF.PI) * 4, 2, 2, 0xFFF060);
             }
-            float prog = 1f - d.PeeT / World.PeeTime;
+            float prog = 1f - d.PeeT / d.PeeTotal;
             Gfx.Fill(px, py - 5, 16, 4, 0x000000, 200);
             Gfx.Fill(px + 1, py - 4, 14 * prog, 2, d.Color);
         }
@@ -513,6 +571,7 @@ public sealed class App
                 Box(120, 150, 240, 70);
                 Gfx.TextCenter($"STAGE {w.Stage}", CX, 162, 0xFFFFFF, 3);
                 Gfx.TextCenter(_t < 1.4f ? "READY?" : "GO!", CX, 196, 0xFFE040, 2);
+                if (w.HasBoss && ((int)(_clock * 4) & 1) == 0) Gfx.TextCenter("!! BOSS DOG APPEARS !!", CX, 232, 0xFF5050);
                 break;
 
             case Scene.Play when _paused:

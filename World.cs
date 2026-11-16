@@ -27,6 +27,14 @@ public sealed class Dog
 
     public float Carry;         // 前の一歩で余った時間(歩く速さを一定に保つ)
 
+    public bool Asleep;         // ボーナスステージ: 眠っている
+    public float AwakeUntil;    // ボーナスステージ: この時刻(World.Clock)まで逃げ回り、そのあとまた眠る
+
+    public bool Boss;           // ボス犬: なわばりを踏み越え、なわばりごと奪う
+    public float PeeTotal = World.PeeTime;   // 今のおしっこにかかる時間
+    public float BoneT;         // 骨の効果の残り時間(おしっこが速くなる)
+    public float PassT;         // 巻物の効果の残り時間(ほかのなわばりを通れる)
+
     // AI用
     public int Target = -1;
     public float Think;
@@ -50,6 +58,13 @@ public sealed class Car
     public int Color;
 }
 
+public sealed class Item
+{
+    public int X, Y;
+    public int Kind;            // 0:骨 1:忍者の巻物
+    public float T;             // 消えるまでの残り時間
+}
+
 public sealed class Popup
 {
     public float X, Y, T;
@@ -65,8 +80,24 @@ public sealed class World
     public const int GoalCells = (FW * FH * 3 + 3) / 4;   // 全体の3/4
     public const float StageTime = 240f;
 
+    // 追加要素が始まるステージ (調整用)
+    public const int ItemFromStage = 5;     // アイテムが出はじめる
+    public const int RainFromStage = 8;     // 雨が降りはじめる
+    public const int BossEvery = 8;         // この倍数のステージにボス犬が出る
+    public const float BossPeeTime = 5f;
+
+    // 夜のボーナスステージ: 眠っている犬を起こさないように囲む。残機は減らない
+    public const float BonusTime = 60f;
+    public const int BonusCellScore = 30, BonusSleeping = 2000, BonusAwake = 1000, BonusPerfect = 5000;
+    public const int WakeWalk = 2;          // 柴犬がこの距離(マス)まで近づくと起きる
+    public const int WakePee = 3;           // この距離でおしっこをすると起きる
+    public const float ItemLife = 12f, BoneTime = 12f, PassTime = 10f;
+
     public readonly int Stage;
     public readonly bool Demo;
+    public readonly bool Bonus;
+    public int BonusCaught;     // ボーナスステージで囲んだ犬の数
+    public bool Perfect;        // ボーナスステージで全員囲んだ
     public int Score, Lives;
     public float TimeLeft = StageTime;
     public int Claimed;
@@ -81,7 +112,14 @@ public sealed class World
     public readonly List<Dog> Dogs = new();
     public readonly List<Car> Cars = new();
     public readonly List<Popup> Popups = new();
+    public readonly List<Item> Items = new();
     public Dog Player => Dogs[0];
+    public bool HasBoss;
+    public float RainWarn;      // >0: まもなく雨が降る(予告中)
+    public float RainT;         // >0: 雨が降っている
+    float _rainNext = float.MaxValue;
+    float _itemSpawn = 6f;
+    readonly bool[] _fresh = new bool[FW * FH];   // 今回のなわばりで新しく取ったマス
 
     readonly Random _rng;
     readonly float[] _laneSpawn = new float[FH];
@@ -100,9 +138,10 @@ public sealed class World
     static readonly int[] DX = [0, -1, 1, 0];
     static readonly int[] DY = [1, 0, 0, -1];
 
-    public World(int stage, int shibaColor, int lives, int score, bool demo, int? seed = null)
+    public World(int stage, int shibaColor, int lives, int score, bool demo, int? seed = null, bool bonus = false)
     {
-        Stage = stage; Demo = demo; Lives = lives; Score = score;
+        Stage = stage; Demo = demo; Lives = lives; Score = score; Bonus = bonus;
+        if (bonus) TimeLeft = BonusTime;
         _rng = seed is int s ? new Random(s) : new Random();
         Generate(shibaColor);
     }
@@ -115,7 +154,7 @@ public sealed class World
             for (int x = 0; x < FW; x++) { Terr[x, y] = -1; PoleAt[x, y] = -1; }
 
         // 道路(2車線)
-        int roads = Stage >= 4 ? 2 : 1;
+        int roads = Bonus ? 0 : Stage >= 4 ? 2 : 1;   // ボーナスステージは道路なし
         var tops = new List<int>();
         for (int tries = 0; tops.Count < roads && tries < 300; tries++)
         {
@@ -164,11 +203,15 @@ public sealed class World
         player.FromX = player.X; player.FromY = player.Y;
         Dogs.Add(player);
 
-        // 敵の犬: ステージ1は1匹、以後1匹ずつ増えて最大8匹
+        if (Stage >= RainFromStage && !Bonus) _rainNext = 22f + (float)_rng.NextDouble() * 20f;
+
+        // 敵の犬: ステージ1は1匹、以後1匹ずつ増えて最大8匹。ボスのステージは 7匹 + ボス
+        HasBoss = !Bonus && Stage >= BossEvery && Stage % BossEvery == 0;
         int enemies = Math.Clamp(Stage, 1, 8);
         for (int i = 0; i < enemies; i++)
         {
-            int breed = Breed.ShibaCount + i % Breed.EnemyBreedCount;
+            bool boss = HasBoss && i == enemies - 1;
+            int breed = boss ? Breed.BossIndex : Breed.ShibaCount + i % Breed.EnemyBreedCount;
             var temper = Temper.For(Breed.All[breed]);
             float baseStep = Math.Max(0.17f, 0.30f - 0.012f * (Stage - 1)) + (float)_rng.NextDouble() * 0.03f;
             var d = new Dog
@@ -176,8 +219,9 @@ public sealed class World
                 Id = Dogs.Count, BreedIndex = breed, Color = Breed.All[breed].TerritoryColor, T = temper,
                 StepTime = Math.Max(0.12f, baseStep * temper.Speed),
                 Think = 0.5f + (float)_rng.NextDouble(),
-                Steps = temper.Stamina,
+                Steps = temper.Stamina, Boss = boss, Asleep = Bonus,
             };
+            if (Bonus) d.StepTime = 0.2f;
             (d.X, d.Y) = FindCell((x, y) =>
             {
                 foreach (var o in Dogs)
@@ -234,6 +278,9 @@ public sealed class World
         else if (_dirBufferT > 0) _dirBufferT -= dt;
 
         UpdateCars(dt);
+        if (GameOver) return;
+        UpdateRain(dt);
+        UpdateItems(dt);
 
         for (int i = 0; i < Dogs.Count; i++)
         {
@@ -260,13 +307,14 @@ public sealed class World
             if (!d.Alive || d.Moving || d.PeeT > 0) continue;
 
             if (d.IsPlayer && !Demo) PlayerControl(d, held);
+            else if (Bonus && !d.IsPlayer) BonusAi(d);
             else AiControl(d, dt);
             d.Carry = 0;
         }
 
         // 身動きが取れなくなった柴犬は囲まれた扱い
         var pl = Player;
-        if (!pl.Moving && pl.PeeT <= 0 && pl.Invuln <= 0)
+        if (!Bonus && !pl.Moving && pl.PeeT <= 0 && pl.Invuln <= 0)
         {
             bool stuck = true;
             for (int k = 0; k < 4; k++) if (CanEnter(pl, pl.X + DX[k], pl.Y + DY[k])) stuck = false;
@@ -315,9 +363,10 @@ public sealed class World
         return nx >= 0 && ny >= 0 && nx < FW && ny < FH ? PoleAt[nx, ny] : -1;
     }
 
-    /// <summary>他の犬のなわばりと電柱には入れない。</summary>
+    /// <summary>他の犬のなわばりと電柱には入れない。ボス犬と、巻物の効果中の犬は、なわばりを通れる。</summary>
     public bool CanEnter(Dog d, int x, int y) =>
-        x >= 0 && y >= 0 && x < FW && y < FH && PoleAt[x, y] < 0 && (Terr[x, y] < 0 || Terr[x, y] == d.Id);
+        x >= 0 && y >= 0 && x < FW && y < FH && PoleAt[x, y] < 0
+        && (Terr[x, y] < 0 || Terr[x, y] == d.Id || d.Boss || d.PassT > 0);
 
     bool TryMove(Dog d, Dir dir)
     {
@@ -331,7 +380,8 @@ public sealed class World
 
     void StartPee(Dog d, int pole)
     {
-        d.PeeT = PeeTime; d.PeePole = pole;
+        d.PeeTotal = (d.Boss ? BossPeeTime : PeeTime) * (d.BoneT > 0 ? 0.5f : 1f);
+        d.PeeT = d.PeeTotal; d.PeePole = pole;
         if (d.IsPlayer) _dripT = 0;
     }
 
@@ -374,18 +424,23 @@ public sealed class World
             return;
         }
 
+        Array.Clear(_fresh);
         foreach (int i in _cells)
         {
+            // ボス犬の場合は、ほかの犬のなわばりだったマスも含まれる(奪い取る)
+            int prev = Terr[i % FW, i / FW];
+            if (prev >= 0) Dogs[prev].Area--; else Claimed++;
             Terr[i % FW, i / FW] = d.Id;
             Flash[i % FW, i / FW] = 1f;
+            _fresh[i] = true;
         }
         d.Area += n;
-        Claimed += n;
         d.Chain.Clear();
+        Items.RemoveAll(it => Terr[it.X, it.Y] >= 0);   // なわばりになった場所のアイテムは消える
         for (int i = 0; i < Poles.Count; i++)
         {
             var p = Poles[i];
-            if (Terr[p.X, p.Y] != d.Id || p.Locked) continue;
+            if (Terr[p.X, p.Y] != d.Id || (p.Locked && p.Owner == d.Id)) continue;
             p.Locked = true; p.Owner = d.Id;
             // なわばりに取り込まれた電柱についていた、ほかの犬の印は解除する
             foreach (var o in Dogs)
@@ -394,8 +449,9 @@ public sealed class World
 
         if (d.IsPlayer)
         {
-            Score += n * 10;
-            AddPopup(d, "+" + n * 10, 0xFFFF60);
+            int gain = n * (Bonus ? BonusCellScore : 10);
+            Score += gain;
+            AddPopup(d, "+" + gain, 0xFFFF60);
             Audio.Play(Sfx.Territory);
         }
         else Audio.Play(Sfx.EnemyTerritory);
@@ -403,7 +459,8 @@ public sealed class World
         // 囲まれた犬の処理
         foreach (var o in Dogs)
         {
-            if (!o.Alive || o == d || Terr[o.X, o.Y] != d.Id) continue;
+            // 今回新しく取ったマスにいる犬だけが対象 (巻物で以前からのなわばりに入り込んでいる犬は対象外)
+            if (!o.Alive || o == d || !_fresh[o.Y * FW + o.X]) continue;
             if (o.IsPlayer)
             {
                 AddPopup(o, "CAUGHT!", 0xFF4040);
@@ -416,12 +473,22 @@ public sealed class World
                 o.Chain.Clear();
                 foreach (var p in Poles)
                     if (!p.Locked && p.Owner == o.Id) p.Owner = -1;
-                AddPopup(o, d.IsPlayer ? "OUT! +500" : "OUT!", 0xFFFFFF);
-                if (d.IsPlayer) Score += 500;
+                int bonus = Bonus ? (o.Asleep ? BonusSleeping : BonusAwake) : o.Boss ? 3000 : 500;
+                if (Bonus) BonusCaught++;
+                AddPopup(o, d.IsPlayer ? "OUT! +" + bonus : "OUT!", 0xFFFFFF);
+                if (d.IsPlayer) Score += bonus;
                 Audio.Play(Sfx.EnemyOut);
             }
         }
 
+        if (Bonus)
+        {
+            // 全員囲んだらパーフェクトで終了
+            bool any = false;
+            foreach (var o in Dogs) if (!o.IsPlayer && o.Alive) any = true;
+            if (!any) { Perfect = true; Score += BonusPerfect; Finish(); }
+            return;
+        }
         if (Claimed >= GoalCells) Finish();
     }
 
@@ -429,6 +496,7 @@ public sealed class World
     /// 電柱 a,b,c の三角形で新しく取れるマス数を返す。作れない場合は -1。
     /// 作れない条件: 一直線 / 新しく取れるマスがない / 三角形の内側に他の犬のなわばりが少しでもある。
     /// (辺の上や頂点の電柱で接しているだけなら可。隣り合うなわばりや、電柱の共有はできる)
+    /// ボス犬だけは例外で、内側にあるほかの犬のなわばりも「取れるマス」に数える(奪い取る)。
     /// 呼び出し後 _inTri に三角形内のマスが入っている。
     /// </summary>
     int Evaluate(int id, int a, int b, int c, List<int>? outCells)
@@ -441,6 +509,7 @@ public sealed class World
         int minY = Math.Min(A.Y, Math.Min(B.Y, C.Y)), maxY = Math.Max(A.Y, Math.Max(B.Y, C.Y));
         int n = 0;
         bool other = false;
+        bool steal = Dogs[id].Boss;
         for (int y = minY; y <= maxY; y++)
             for (int x = minX; x <= maxX; x++)
             {
@@ -453,7 +522,11 @@ public sealed class World
                 _inTri[i] = true;
                 int t = Terr[x, y];
                 if (t < 0) { n++; outCells?.Add(i); }
-                else if (t != id && d1 != 0 && d2 != 0 && d3 != 0) other = true;
+                else if (t != id)
+                {
+                    if (steal) { n++; outCells?.Add(i); }
+                    else if (d1 != 0 && d2 != 0 && d3 != 0) other = true;
+                }
             }
         if (n == 0 || other) return -1;
         return n;
@@ -487,6 +560,7 @@ public sealed class World
     {
         if (Finished) return;
         Finished = true;
+        if (Bonus) { Cleared = true; return; }
         int best = 0;
         foreach (var d in Dogs) if (!d.IsPlayer && d.Area > best) best = d.Area;
         Cleared = Player.Area > 0 && Player.Area >= best;
@@ -498,6 +572,98 @@ public sealed class World
     {
         float x = Math.Clamp(cx * Tile + 8 - text.Length * 4, 2, FW * Tile - text.Length * 8 - 2);
         Popups.Add(new Popup { X = x, Y = cy * Tile - 6, T = 1.4f, Text = text, Color = color });
+    }
+
+    // ------------------------------------------------------------ 雨とアイテム
+
+    /// <summary>
+    /// 雨: 5秒の予告のあと降りだし、降りだした瞬間に「まだなわばりになっていない印」が全部流れる。
+    /// なわばりになった電柱と、なわばりそのものは残る。
+    /// </summary>
+    void UpdateRain(float dt)
+    {
+        if (RainT > 0) { RainT -= dt; return; }
+        if (RainWarn > 0)
+        {
+            RainWarn -= dt;
+            if (RainWarn > 0) return;
+            RainWarn = 0;
+            RainT = 4f;
+            _rainNext = 35f + (float)_rng.NextDouble() * 25f;
+            foreach (var p in Poles) if (!p.Locked) p.Owner = -1;
+            foreach (var d in Dogs)
+            {
+                if (d.IsPlayer && d.Alive && d.Chain.Count > 0) AddPopup(d, "WASHED AWAY!", 0x80C0FF);
+                d.Chain.Clear();
+                d.Target = -1;
+            }
+            Audio.Play(Sfx.Rain);
+            return;
+        }
+        _rainNext -= dt;
+        if (_rainNext <= 0) { RainWarn = 5f; Audio.Play(Sfx.Thunder); }
+    }
+
+    /// <summary>
+    /// アイテム: なわばりの外に現れ、一定時間で消える。踏んだ犬が拾う(敵も拾う)。
+    ///  骨   … しばらくおしっこの時間が半分になる
+    ///  巻物 … しばらくほかの犬のなわばりを通り抜けられる。切れたときに他のなわばりの中にいると外へ放り出される
+    /// </summary>
+    void UpdateItems(float dt)
+    {
+        for (int i = Items.Count - 1; i >= 0; i--)
+        {
+            Items[i].T -= dt;
+            if (Items[i].T <= 0) Items.RemoveAt(i);
+        }
+
+        if (Stage >= ItemFromStage && !Bonus)
+        {
+            _itemSpawn -= dt;
+            if (_itemSpawn <= 0)
+            {
+                _itemSpawn = 9f + (float)_rng.NextDouble() * 9f;
+                if (Items.Count < 2)
+                {
+                    var (x, y) = FindCell((cx, cy) =>
+                    {
+                        foreach (var o in Dogs) if (o.Alive && Math.Abs(o.X - cx) + Math.Abs(o.Y - cy) < 3) return false;
+                        foreach (var it in Items) if (it.X == cx && it.Y == cy) return false;
+                        return true;
+                    });
+                    if (IsFree(x, y)) Items.Add(new Item { X = x, Y = y, Kind = _rng.Next(3) == 0 ? 1 : 0, T = ItemLife });
+                }
+            }
+        }
+
+        foreach (var d in Dogs)
+        {
+            if (!d.Alive) continue;
+            if (d.BoneT > 0) d.BoneT -= dt;
+            if (d.PassT > 0)
+            {
+                d.PassT -= dt;
+                int t = Terr[d.X, d.Y];
+                if (d.PassT <= 0 && !d.Boss && t >= 0 && t != d.Id)
+                {
+                    // 効果が切れたとき他のなわばりの中にいたら、外へ放り出される(残機は減らない)
+                    AddPopup(d, "KICKED OUT!", 0xC0A0FF);
+                    if (d.IsPlayer) Audio.Play(Sfx.Kicked);
+                    Respawn(d);
+                    d.Invuln = 1.5f;
+                }
+            }
+
+            for (int i = Items.Count - 1; i >= 0; i--)
+            {
+                var it = Items[i];
+                if (it.X != d.X || it.Y != d.Y) continue;
+                Items.RemoveAt(i);
+                if (it.Kind == 0) { d.BoneT = BoneTime; AddPopup(d, d.IsPlayer ? "BONE! +100" : "BONE!", 0xFFFFFF); }
+                else { d.PassT = PassTime; AddPopup(d, d.IsPlayer ? "NINJA! +100" : "NINJA!", 0xC0A0FF); }
+                if (d.IsPlayer) { Score += 100; Audio.Play(Sfx.Item); }
+            }
+        }
     }
 
     // ------------------------------------------------------------ 車
@@ -566,6 +732,43 @@ public sealed class World
         if (d.Moving && d.MoveT < d.StepTime * 0.5f)
             return (d.FromX * Tile + (d.X - d.FromX) * 8, d.FromY * Tile + (d.Y - d.FromY) * 8, true);
         return (d.X * Tile, d.Y * Tile, false);
+    }
+
+    // ------------------------------------------------------------ ボーナスステージの犬
+
+    /// <summary>
+    /// 眠っている犬は、柴犬が近づくか近くでおしっこをすると目を覚ます。
+    /// 起きた犬は数秒間、柴犬から離れるように逃げ、十分離れたらまた眠る。
+    /// </summary>
+    void BonusAi(Dog d)
+    {
+        var pl = Player;
+        int dist = Math.Abs(pl.X - d.X) + Math.Abs(pl.Y - d.Y);
+        if (d.Asleep)
+        {
+            if (dist > WakeWalk && !(pl.PeeT > 0 && dist <= WakePee)) return;
+            d.Asleep = false;
+            d.AwakeUntil = Clock + 5f;
+            AddPopup(d, "!?", 0xFFFF60);
+            Audio.Play(Sfx.Bark);
+            return;
+        }
+        if (Clock >= d.AwakeUntil && dist >= 6)
+        {
+            d.Asleep = true; d.Dir = Dir.Down;
+            return;
+        }
+        // 柴犬からいちばん遠ざかる方向へ(少し気まぐれ)
+        int best = -1;
+        double bestScore = double.MinValue;
+        for (int k = 0; k < 4; k++)
+        {
+            int nx = d.X + DX[k], ny = d.Y + DY[k];
+            if (!CanEnter(d, nx, ny)) continue;
+            double s = Math.Abs(pl.X - nx) + Math.Abs(pl.Y - ny) + _rng.NextDouble() * 1.5;
+            if (s > bestScore) { bestScore = s; best = k; }
+        }
+        if (best >= 0) TryMove(d, (Dir)best);
     }
 
     // ------------------------------------------------------------ 敵AI

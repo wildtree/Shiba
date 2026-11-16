@@ -34,10 +34,15 @@ public sealed record Breed(string Name, string Display, Ear Ear, uint TerritoryC
             "O=6A3A20 E=B06A34 P=E F=CC8A4E Y=F Z=F d=DDA066 K=1A1010 H=FFFFFF C=DDA066 N=1A1010 M=F0707F B=F S=B06A34 R=DDA066 L=F T=B06A34 D=DDA066"),
         new("Beagle", "BEAGLE", Ear.Floppy, 0x3AD6A0,
             "O=3A2010 E=8A4A1A P=E F=B86A2A Y=F Z=FFFFFF d=F K=1A1010 H=FFFFFF C=FFFFFF N=1A1010 M=F0707F B=FFFFFF S=2A2A2E R=FFFFFF L=FFFFFF T=FFFFFF D=B86A2A"),
+
+        // ボス犬 (8の倍数のステージに登場。2倍の大きさで描く)
+        new("StBernard", "ST.BERNARD", Ear.Floppy, 0x9C2040,
+            "O=3A2010 E=7A3A14 P=E F=A8501E Y=F Z=FFFFFF d=F K=1A1010 H=FFFFFF C=FFFFFF N=1A1010 M=F0707F B=FFFFFF S=A8501E R=FFFFFF L=FFFFFF T=FFFFFF D=A8501E"),
     ];
 
     public const int ShibaCount = 3;
-    public static int EnemyBreedCount => All.Length - ShibaCount;
+    public static int BossIndex => All.Length - 1;
+    public static int EnemyBreedCount => All.Length - ShibaCount - 1;
 
     public Dictionary<char, uint> BuildPalette()
     {
@@ -92,6 +97,8 @@ public sealed record Temper(
         "Poodle" => new(0.95f, 7, 1.0f, 1.0f, 0.3f, 3.0f, 1.3f, 0, 0f, 0.5f, 0.4f, "", "CLEVER"),
         // ビーグル: においに夢中。ほかの犬の印に引き寄せられ、気まぐれに寄り道する
         "Beagle" => new(1.0f, 7, 0.9f, 0.7f, 0f, 2.0f, 0.8f, 20, 1.2f, 1.2f, 3.0f, "SNIFF", "NOSY"),
+        // セントバーナード(ボス): 遅いが、ほかの犬のなわばりを踏み越え、なわばりごと奪い取る
+        "StBernard" => new(1.45f, 12, 1.5f, 2.0f, 1.0f, 1.0f, 2.0f, 0, 0f, 1.5f, 0.6f, "", "BOSS"),
         _ => Default,
     };
 }

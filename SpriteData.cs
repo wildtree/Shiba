@@ -217,6 +217,47 @@ public static class SpriteData
         OOO.OOO..OOOO...
         """;
 
+    // ---------- アイテム ----------
+    // 骨: W 白  w 影
+    public const string Bone = """
+        ................
+        ................
+        ..OO........OO..
+        .OWWO......OWWO.
+        OWWWWO....OWWWWO
+        OWWWWWOOOOWWWWWO
+        .OWWWWWWWWWWWWO.
+        ..OWWWWWWWWWWO..
+        .OWwwwwwwwwwwWO.
+        OWWwwwOOOOwwwWWO
+        OWwwwO....OwwwWO
+        .OwwO......OwwO.
+        ..OO........OO..
+        ................
+        ................
+        ................
+        """;
+
+    // 忍者の巻物: P 紫  R 赤い印  y 金の軸
+    public const string Scroll = """
+        ................
+        ................
+        ................
+        .OO..........OO.
+        OyyOOOOOOOOOOyyO
+        OyyOPPPPPPPPOyyO
+        OyyOPPPRRPPPOyyO
+        OyyOPPRRRRPPOyyO
+        OyyOPPRRRRPPOyyO
+        OyyOPPPRRPPPOyyO
+        OyyOPPPPPPPPOyyO
+        OyyOOOOOOOOOOyyO
+        .OO..........OO.
+        ................
+        ................
+        ................
+        """;
+
     // ---------- 電柱 ----------
     // G/g コンクリート  W 腕金  I がいし  O 輪郭
     public const string Pole = """

@@ -8,7 +8,12 @@ internal static class Program
         if (args.Length > 0 && args[0] == "--selftest") { SelfTest(); return; }
         try
         {
-            new App().Run();
+            // テストプレイ用: "--stage 8" で指定したステージから始める
+            int startStage = 1;
+            int at = Array.IndexOf(args, "--stage");
+            if (at >= 0 && at + 1 < args.Length) int.TryParse(args[at + 1], out startStage);
+            // "--bonus" で夜のボーナスステージから始める
+            new App(startStage, Array.IndexOf(args, "--bonus") >= 0).Run();
         }
         catch (Exception e)
         {
