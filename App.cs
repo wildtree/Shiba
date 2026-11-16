@@ -205,7 +205,17 @@ public sealed class App
                 var w = _world!;
                 if (Input.Back) { ToTitle(); break; }
                 if (Input.Pressed(SDL.Scancode.P) || Input.PadPause) { _paused = !_paused; Audio.Play(Sfx.Select); }
-                if (_paused) break;
+                if (_paused)
+                {
+                    // ギブアップ: ポーズ中に R (パッドは Y) で、このステージを最初からやり直す。
+                    // ステージ失敗と同じ扱いで、スコアはステージ開始時に戻り、残機は今のまま
+                    if (Input.Pressed(SDL.Scancode.R) && !w.Bonus)
+                    {
+                        _score = _stageStartScore;
+                        BeginStage();
+                    }
+                    break;
+                }
                 w.Update(dt, Input.Held, Input.Action, Input.PressedDir);
                 _score = w.Score; _lives = w.Lives;
                 if (w.GameOver)
@@ -695,9 +705,11 @@ public sealed class App
                 break;
 
             case Scene.Play when _paused:
-                Box(150, 170, 180, 50);
-                Gfx.TextCenter("PAUSE", CX, 180, 0xFFFFFF, 3);
-                Gfx.TextCenter("P / START: RESUME", CX, 208, 0x9AA4C8);
+                Box(120, 150, 240, 96);
+                Gfx.TextCenter("PAUSE", CX, 160, 0xFFFFFF, 3);
+                Gfx.TextCenter("P / START : RESUME", CX, 194, 0xFFFFFF);
+                if (!w.Bonus) Gfx.TextCenter("R / Y     : RETRY STAGE", CX, 208, 0xFFE040);
+                Gfx.TextCenter("ESC / BACK: TITLE", CX, 222, 0x9AA4C8);
                 break;
 
             case Scene.Demo:

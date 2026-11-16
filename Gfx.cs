@@ -305,7 +305,7 @@ public static class Input
     }
 
     // ---------------- ゲームパッド ----------------
-    // 方向(Dパッド/左スティック)は矢印キー、A/B/X/Y はスペース、START は Enter、BACK は Esc
+    // 方向(Dパッド/左スティック)は矢印キー、A/B/X はスペース、Y は R、START は Enter、BACK は Esc
     // を押したのと同じ扱いにする。こうしておくと画面側はキーボードだけ見ればよい。
 
     static readonly SDL.Scancode[] DirKey = [SDL.Scancode.Down, SDL.Scancode.Left, SDL.Scancode.Right, SDL.Scancode.Up];
@@ -343,8 +343,9 @@ public static class Input
             case SDL.GamepadButton.South:
             case SDL.GamepadButton.East:
             case SDL.GamepadButton.West:
-            case SDL.GamepadButton.North:
                 PadKey(SDL.Scancode.Space, down); break;
+            case SDL.GamepadButton.North:
+                PadKey(SDL.Scancode.R, down); break;       // Y: ポーズ中のやり直し
             case SDL.GamepadButton.Start:
                 PadKey(SDL.Scancode.Return, down);
                 if (down) _padPause = true;
