@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Shiba Jintori
+Name[ja]=柴犬陣取りゲーム
+GenericName=Territory Action Game
+GenericName[ja]=陣取りアクションゲーム
+Comment=Mark three utility poles to claim your territory
+Comment[ja]=電柱3本におしっこをひっかけて、なわばりを広げよう
+Exec=/opt/ShibaJintori/ShibaJintori
+Icon=shibajintori
+Terminal=false
+Categories=Game;ArcadeGame;
+Keywords=shiba;dog;territory;arcade;
+StartupNotify=true
+StartupWMClass=shibajintori

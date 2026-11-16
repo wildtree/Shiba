@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- WinExe: Windowsでコンソール窓を出さない。Linux/macOSでは通常の実行ファイルになる -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ShibaJintori</RootNamespace>
+    <AssemblyName>ShibaJintori</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Version>1.0.0</Version>
+    <Product>Shiba Jintori</Product>
+    <!-- Windowsの実行ファイルに埋め込むアイコン -->
+    <ApplicationIcon>packaging/icons/shibajintori.ico</ApplicationIcon>
+    <!-- 配布物の作業フォルダはビルド対象から外す -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);dist/**;packaging/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <!--
+    SDL3本体(ネイティブライブラリ)はOSごとに別パッケージ。
+    「dotnet publish -r win-x64」のようにRIDを指定した場合はそのOS、
+    指定しない場合はビルドしているOSのものを使う。
+  -->
+  <PropertyGroup>
+    <SdlNative Condition="'$(RuntimeIdentifier)' != '' and $(RuntimeIdentifier.StartsWith('win'))">Windows</SdlNative>
+    <SdlNative Condition="'$(RuntimeIdentifier)' != '' and $(RuntimeIdentifier.StartsWith('linux'))">Linux</SdlNative>
+    <SdlNative Condition="'$(RuntimeIdentifier)' != '' and $(RuntimeIdentifier.StartsWith('osx'))">MacOS</SdlNative>
+    <SdlNative Condition="'$(SdlNative)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">Windows</SdlNative>
+    <SdlNative Condition="'$(SdlNative)' == '' and $([MSBuild]::IsOSPlatform('Linux'))">Linux</SdlNative>
+    <SdlNative Condition="'$(SdlNative)' == '' and $([MSBuild]::IsOSPlatform('OSX'))">MacOS</SdlNative>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SDL3-CS" Version="3.4.*" />
+    <PackageReference Include="SDL3-CS.$(SdlNative)" Version="3.4.*" Condition="'$(SdlNative)' != ''" />
+  </ItemGroup>
+
+</Project>
