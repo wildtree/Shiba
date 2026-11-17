@@ -566,6 +566,9 @@ public sealed class World
         Cleared = Player.Area > 0 && Player.Area >= best;
     }
 
+    /// <summary>柴犬の頭上に文字を出す(残機が増えたときなど)。</summary>
+    public void Announce(string text, uint color) => AddPopup(Player.X, Player.Y - 1, text, color);
+
     void AddPopup(Dog d, string text, uint color) => AddPopup(d.X, d.Y, text, color);
 
     void AddPopup(int cx, int cy, string text, uint color)

@@ -43,6 +43,10 @@ public sealed class App
     }
     float _padKeepAlive;
 
+    // 残機が増える得点: 最初は 20,000 点、その後は 40,000 点ごと (60,000 / 100,000 / ...)
+    const int FirstExtend = 20000, ExtendEvery = 40000;
+    int _nextExtend = FirstExtend;
+
     readonly int _startStage;
     readonly bool _startBonus;
     int _bonusStartScore;
@@ -208,6 +212,7 @@ public sealed class App
                 {
                     Audio.Play(Sfx.Start);
                     _stage = _startStage; _lives = 3; _score = 0; _attract = false;
+                    _nextExtend = FirstExtend;
                     if (_startBonus) BeginBonus(); else BeginStage();
                 }
                 else if (_t > 12) { _attract = true; _newRank = -1; Go(Scene.HiScores); }
@@ -257,7 +262,9 @@ public sealed class App
                     break;
                 }
                 w.Update(dt, Input.Held, Input.Action, Input.PressedDir);
-                _score = w.Score; _lives = w.Lives;
+                _score = w.Score;
+                CheckExtend(w);
+                _lives = w.Lives;
                 if (w.GameOver)
                 {
                     Audio.PlayMusic(Tune.None);
@@ -273,6 +280,8 @@ public sealed class App
                     {
                         _bonus = w.Player.Area * 5 + (int)w.TimeLeft * 10 + 500 * _stage;
                         _score += _bonus; w.Score = _score;
+                        CheckExtend(w);
+                        _lives = w.Lives;
                         Audio.Play(Sfx.StageClear);
                     }
                     else Audio.Play(Sfx.StageFail);
@@ -313,6 +322,21 @@ public sealed class App
             case Scene.NameEntry:
                 UpdateNameEntry();
                 break;
+        }
+    }
+
+    /// <summary>
+    /// 得点が基準を超えたら残機を1つ増やす。
+    /// 基準は下がらないので、やり直しでスコアが戻っても同じ基準で二度は増えない。
+    /// </summary>
+    void CheckExtend(World w)
+    {
+        while (_score >= _nextExtend)
+        {
+            _nextExtend += ExtendEvery;
+            w.Lives++;
+            w.Announce("1UP!", 0x60FF90);
+            Audio.Play(Sfx.Extend);
         }
     }
 
@@ -664,8 +688,17 @@ public sealed class App
         Gfx.Text("HI", X, 58, 0x9AA4C8); Gfx.Text($"{Math.Max(_hi.Top, w.Score):0000000}", X + 88, 58);
 
         Gfx.Text("LIVES", X, 78, 0x9AA4C8);
-        for (int i = 0; i < Math.Min(w.Lives, 5); i++)
-            Gfx.Draw(Art.Dogs[w.Player.BreedIndex][0], X + 48 + i * 18, 73);
+        if (w.Lives <= 5)
+        {
+            for (int i = 0; i < w.Lives; i++)
+                Gfx.Draw(Art.Dogs[w.Player.BreedIndex][0], X + 48 + i * 18, 73);
+        }
+        else
+        {
+            // 6つ以上は「絵 x 数」で表示
+            Gfx.Draw(Art.Dogs[w.Player.BreedIndex][0], X + 48, 73);
+            Gfx.Text($"x {w.Lives}", X + 70, 78);
+        }
 
         int time = (int)MathF.Ceiling(w.TimeLeft);
         Gfx.Text("TIME", X, 98, 0x9AA4C8);

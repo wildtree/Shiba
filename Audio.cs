@@ -6,7 +6,7 @@ public enum Sfx
 {
     Step, PeeDrip, Mark, Overwrite, Territory, EnemyTerritory, Invalid, Miss, EnemyOut,
     StageClear, StageFail, GameOver, Select, Start, CarHit, Bark, NameOk,
-    Item, Thunder, Rain, Kicked,
+    Item, Thunder, Rain, Kicked, Extend,
 }
 
 public enum Tune { None, Title, Game }
@@ -193,6 +193,7 @@ public static class Audio
                 V(3, 700, 100, 0.8f, 0.14f, 0.5f);
                 break;
             case Sfx.Rain: V(3, 7000, 5500, 3.8f, 0.07f); V(3, 3000, 2500, 3.8f, 0.04f); break;
+            case Sfx.Extend: Notes(0, "e6 g6 e7 c7 d7 g7:4", 0.08f, 0.16f); Notes(2, "c5 e5 g5 c6 e6 g6:4", 0.08f, 0.2f); break;
             case Sfx.Kicked: Notes(1, "c6 g5 e5 c5", 0.05f, 0.13f); break;
         }
     }
