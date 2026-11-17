@@ -9,7 +9,7 @@
 #define AppName "Shiba Jintori"
 #define AppExe "ShibaJintori.exe"
 #ifndef AppVersion
-  #define AppVersion "1.0.1"
+  #define AppVersion "1.0.2"
 #endif
 #ifndef PublishDir
   #define PublishDir "..\..\dist\win-x64"

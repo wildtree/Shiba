@@ -97,6 +97,7 @@ public sealed class World
     public readonly bool Demo;
     public readonly bool Bonus;
     public int BonusCaught;     // ボーナスステージで囲んだ犬の数
+    public int Misses;          // このステージでミスした回数 (実績用)
     public bool Perfect;        // ボーナスステージで全員囲んだ
     public int Score, Lives;
     public float TimeLeft = StageTime;
@@ -144,6 +145,12 @@ public sealed class World
         if (bonus) TimeLeft = BonusTime;
         _rng = seed is int s ? new Random(s) : new Random();
         Generate(shibaColor);
+    }
+
+    /// <summary>実績を解除する (デモ画面では解除しない)。</summary>
+    void Ach(string id)
+    {
+        if (!Demo) Achievements.Unlock(id);
     }
 
     // ------------------------------------------------------------ 生成
@@ -346,7 +353,12 @@ public sealed class World
         if (want is Dir dir)
         {
             _dirBufferT = 0;
-            if (TryMove(d, dir)) Audio.Play(Sfx.Step);
+            if (TryMove(d, dir))
+            {
+                Audio.Play(Sfx.Step);
+                int t = Terr[d.X, d.Y];
+                if (d.PassT > 0 && t >= 0 && t != d.Id) Ach("NINJA");
+            }
         }
     }
 
@@ -399,6 +411,7 @@ public sealed class World
                 var prev = Dogs[pole.Owner];
                 prev.Chain.Remove(idx);
                 if (d.IsPlayer || prev.IsPlayer) Audio.Play(Sfx.Overwrite);
+                if (d.IsPlayer) Ach("OVERWRITE");
                 if (prev.IsPlayer) AddPopup(pole.X, pole.Y, "LOST!", 0xFF6060);
             }
             pole.Owner = d.Id;
@@ -453,10 +466,14 @@ public sealed class World
             Score += gain;
             AddPopup(d, "+" + gain, 0xFFFF60);
             Audio.Play(Sfx.Territory);
+            Ach("FIRST_TURF");
+            if (n >= 100) Ach("BIG_TURF");
+            if (d.Area * 2 >= FW * FH) Ach("HALF");
         }
         else Audio.Play(Sfx.EnemyTerritory);
 
         // 囲まれた犬の処理
+        int caught = 0;
         foreach (var o in Dogs)
         {
             // 今回新しく取ったマスにいる犬だけが対象 (巻物で以前からのなわばりに入り込んでいる犬は対象外)
@@ -464,6 +481,7 @@ public sealed class World
             if (o.IsPlayer)
             {
                 AddPopup(o, "CAUGHT!", 0xFF4040);
+                Ach("GOT_CAUGHT");
                 LoseLife();
                 if (GameOver) return;
             }
@@ -476,10 +494,17 @@ public sealed class World
                 int bonus = Bonus ? (o.Asleep ? BonusSleeping : BonusAwake) : o.Boss ? 3000 : 500;
                 if (Bonus) BonusCaught++;
                 AddPopup(o, d.IsPlayer ? "OUT! +" + bonus : "OUT!", 0xFFFFFF);
-                if (d.IsPlayer) Score += bonus;
+                if (d.IsPlayer)
+                {
+                    Score += bonus;
+                    caught++;
+                    Ach("CATCH_DOG");
+                    if (o.Boss) Ach("BOSS_DOWN");
+                }
                 Audio.Play(Sfx.EnemyOut);
             }
         }
+        if (caught >= 2) Ach("DOUBLE_CATCH");
 
         if (Bonus)
         {
@@ -535,6 +560,7 @@ public sealed class World
     void LoseLife()
     {
         var d = Player;
+        Misses++;
         Audio.Play(Sfx.Miss);
         if (!Demo)
         {
@@ -596,7 +622,11 @@ public sealed class World
             foreach (var p in Poles) if (!p.Locked) p.Owner = -1;
             foreach (var d in Dogs)
             {
-                if (d.IsPlayer && d.Alive && d.Chain.Count > 0) AddPopup(d, "WASHED AWAY!", 0x80C0FF);
+                if (d.IsPlayer && d.Alive && d.Chain.Count > 0)
+                {
+                    AddPopup(d, "WASHED AWAY!", 0x80C0FF);
+                    Ach("WASHED");
+                }
                 d.Chain.Clear();
                 d.Target = -1;
             }
@@ -662,7 +692,12 @@ public sealed class World
                 var it = Items[i];
                 if (it.X != d.X || it.Y != d.Y) continue;
                 Items.RemoveAt(i);
-                if (it.Kind == 0) { d.BoneT = BoneTime; AddPopup(d, d.IsPlayer ? "BONE! +100" : "BONE!", 0xFFFFFF); }
+                if (it.Kind == 0)
+                {
+                    d.BoneT = BoneTime;
+                    AddPopup(d, d.IsPlayer ? "BONE! +100" : "BONE!", 0xFFFFFF);
+                    if (d.IsPlayer) Ach("BONE");
+                }
                 else { d.PassT = PassTime; AddPopup(d, d.IsPlayer ? "NINJA! +100" : "NINJA!", 0xC0A0FF); }
                 if (d.IsPlayer) { Score += 100; Audio.Play(Sfx.Item); }
             }
@@ -696,6 +731,7 @@ public sealed class World
                 if (d.IsPlayer)
                 {
                     AddPopup(d, "OUCH!", 0xFF4040);
+                    Ach("CAR_HIT");
                     LoseLife();
                     if (GameOver) return;
                 }

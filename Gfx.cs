@@ -189,6 +189,8 @@ public static class Art
     public static Sprite Pole, PeeMark, PoleBand, Grass0, Grass1, RoadTop, RoadBottom, Paw;
     /// <summary>[0:骨 1:巻物]</summary>
     public static Sprite[] Items = [];
+    /// <summary>実績アイコン用の絵 (Flag, Moon, Star, Trophy, Crown, Drop, Heart, Bolt)</summary>
+    public static Dictionary<string, Sprite> Icons = new();
     public static Sprite[] Cars = [];
 
     public static void Load()
@@ -247,6 +249,23 @@ public static class Art
             ['O'] = 0x30241C, ['W'] = 0xFFFFFF, ['w'] = 0xD8D0C0, ['P'] = 0x7A48C8, ['R'] = 0xE83838, ['y'] = 0xF0C040,
         };
         Items = [Gfx.MakeSprite(Gfx.Rows(SpriteData.Bone), itemPal), Gfx.MakeSprite(Gfx.Rows(SpriteData.Scroll), itemPal)];
+
+        var iconPal = new Dictionary<char, uint>
+        {
+            ['O'] = 0x20242C, ['Y'] = 0xFFD840, ['y'] = 0xC89A20, ['W'] = 0xFFFFFF, ['w'] = 0xC8CCD8,
+            ['R'] = 0xE84848, ['r'] = 0xA82828, ['B'] = 0x58A8F0, ['b'] = 0x2F6FB8, ['M'] = 0xFFF0A0,
+        };
+        Icons = new Dictionary<string, Sprite>
+        {
+            ["Flag"] = Gfx.MakeSprite(Gfx.Rows(SpriteData.IconFlag), iconPal),
+            ["Moon"] = Gfx.MakeSprite(Gfx.Rows(SpriteData.IconMoon), iconPal),
+            ["Star"] = Gfx.MakeSprite(Gfx.Rows(SpriteData.IconStar), iconPal),
+            ["Trophy"] = Gfx.MakeSprite(Gfx.Rows(SpriteData.IconTrophy), iconPal),
+            ["Crown"] = Gfx.MakeSprite(Gfx.Rows(SpriteData.IconCrown), iconPal),
+            ["Drop"] = Gfx.MakeSprite(Gfx.Rows(SpriteData.IconDrop), iconPal),
+            ["Heart"] = Gfx.MakeSprite(Gfx.Rows(SpriteData.IconHeart), iconPal),
+            ["Bolt"] = Gfx.MakeSprite(Gfx.Rows(SpriteData.IconBolt), iconPal),
+        };
 
         var grass = new Dictionary<char, uint>
         {

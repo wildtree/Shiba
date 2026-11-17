@@ -108,6 +108,12 @@ SDL がボタン配置を知らない汎用の USB ジョイパッドも使え�
 出はじめるステージは `World.cs` 冒頭の `ItemFromStage` / `RainFromStage` / `BossEvery` で変えられます。
 テストプレイ用に `dotnet run -c Release -- --stage 8` で途中のステージから、`-- --bonus` でボーナスステージから始められます。
 
+## 実績
+
+全24個。タイトル画面で下キー (パッドは十字キー下) を押すと実績画面、上キーでハイスコア画面が開きます。
+解除するまで、実績の名前・条件・アイコンは「?」で隠れています。解除するとプレイ中でも画面上部に通知が出ます。
+解除状況はハイスコアと同じフォルダの `achievements.txt` に保存されます (消すとリセット)。デモ画面では解除されません。
+
 ## 敵の犬種の性格
 
 | 犬種 | 性格 |
@@ -134,5 +140,6 @@ SDL がボタン配置を知らない汎用の USB ジョイパッドも使え�
 | `Gfx.cs` | SDL3 描画ラッパー、スプライト生成、キー入力 |
 | `Audio.cs` | 効果音とBGMの合成 |
 | `HiScores.cs` | ハイスコア上位 10 件の保存 |
+| `Achievements.cs` | 実績の定義・保存・アイコン・解除通知 |
 
 ハイスコアは Windows では `%APPDATA%\ShibaJintori\hiscores.txt`、Linux では `~/.config/ShibaJintori/hiscores.txt` に保存されます。

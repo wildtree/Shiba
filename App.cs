@@ -5,7 +5,10 @@ namespace ShibaJintori;
 /// <summary>画面遷移(タイトル/デモ/プレイ/結果/ネーム入力/ハイスコア)と描画。</summary>
 public sealed class App
 {
-    enum Scene { Title, HiScores, Demo, StageIntro, Play, StageResult, GameOver, NameEntry }
+    enum Scene { Title, HiScores, Demo, StageIntro, Play, StageResult, GameOver, NameEntry, Achievements }
+
+    int _achCursor;          // 実績画面で選んでいる実績
+    float _viewTime = 8;     // ハイスコア画面を自動で閉じるまでの秒数
 
     const int FieldW = World.FW * World.Tile;   // 480
     const uint PanelBg = 0x1B2033;
@@ -39,7 +42,7 @@ public sealed class App
     static string FormatVersion()
     {
         var v = typeof(App).Assembly.GetName().Version;
-        return v == null ? "1.0.1" : $"{v.Major}.{v.Minor}.{v.Build}";
+        return v == null ? "1.0.2" : $"{v.Major}.{v.Minor}.{v.Build}";
     }
     float _padKeepAlive;
 
@@ -197,6 +200,7 @@ public sealed class App
     void Update(float dt)
     {
         _t += dt;
+        Achievements.UpdateToast(dt);
         switch (_scene)
         {
             case Scene.Title:
@@ -208,6 +212,20 @@ public sealed class App
                     _t = 0;
                     Audio.Play(Sfx.Select);
                 }
+                else if (Input.PressedDir == Dir.Up)
+                {
+                    // 上: ハイスコア画面
+                    Audio.Play(Sfx.Select);
+                    _attract = false; _newRank = -1; _viewTime = 30;
+                    Go(Scene.HiScores);
+                }
+                else if (Input.PressedDir == Dir.Down)
+                {
+                    // 下: 実績画面
+                    Audio.Play(Sfx.Select);
+                    _achCursor = 0;
+                    Go(Scene.Achievements);
+                }
                 else if (Input.Confirm)
                 {
                     Audio.Play(Sfx.Start);
@@ -215,11 +233,11 @@ public sealed class App
                     _nextExtend = FirstExtend;
                     if (_startBonus) BeginBonus(); else BeginStage();
                 }
-                else if (_t > 12) { _attract = true; _newRank = -1; Go(Scene.HiScores); }
+                else if (_t > 12) { _attract = true; _newRank = -1; _viewTime = 8; Go(Scene.HiScores); }
                 break;
 
             case Scene.HiScores:
-                if (Input.AnyPressed || _t > 8)
+                if (Input.AnyPressed || _t > _viewTime)
                 {
                     if (_attract && !Input.AnyPressed)
                     {
@@ -228,6 +246,21 @@ public sealed class App
                     }
                     else Go(Scene.Title);
                 }
+                break;
+
+            case Scene.Achievements:
+                if (Input.PressedDir is Dir ad)
+                {
+                    int cols = Achievements.Columns, count = Achievements.All.Length;
+                    int c = _achCursor % cols, r = _achCursor / cols, rows = (count + cols - 1) / cols;
+                    if (ad == Dir.Left) c = (c + cols - 1) % cols;
+                    if (ad == Dir.Right) c = (c + 1) % cols;
+                    if (ad == Dir.Up) r = (r + rows - 1) % rows;
+                    if (ad == Dir.Down) r = (r + 1) % rows;
+                    _achCursor = Math.Min(r * cols + c, count - 1);
+                    Audio.Play(Sfx.Select);
+                }
+                else if (Input.Back || Input.Confirm || _t > 60) { Audio.Play(Sfx.Select); Go(Scene.Title); }
                 break;
 
             case Scene.Demo:
@@ -256,6 +289,7 @@ public sealed class App
                     // ステージ失敗と同じ扱いで、スコアはステージ開始時に戻り、残機は今のまま
                     if (Input.Pressed(SDL.Scancode.R) && !w.Bonus)
                     {
+                        Achievements.Unlock("GIVE_UP");
                         _score = _stageStartScore;
                         BeginStage();
                     }
@@ -265,6 +299,7 @@ public sealed class App
                 _score = w.Score;
                 CheckExtend(w);
                 _lives = w.Lives;
+                if (_score >= 100000) Achievements.Unlock("SCORE_100K");
                 if (w.GameOver)
                 {
                     Audio.PlayMusic(Tune.None);
@@ -275,7 +310,12 @@ public sealed class App
                 {
                     Audio.PlayMusic(Tune.None);
                     _bonus = 0;
-                    if (w.Bonus) Audio.Play(Sfx.StageClear);
+                    if (w.Bonus)
+                    {
+                        Audio.Play(Sfx.StageClear);
+                        Achievements.Unlock("BONUS_CLEAR");
+                        if (w.Perfect) Achievements.Unlock("BONUS_PERFECT");
+                    }
                     else if (w.Cleared)
                     {
                         _bonus = w.Player.Area * 5 + (int)w.TimeLeft * 10 + 500 * _stage;
@@ -283,7 +323,9 @@ public sealed class App
                         CheckExtend(w);
                         _lives = w.Lives;
                         Audio.Play(Sfx.StageClear);
+                        StageClearAchievements(w);
                     }
+                    if (_score >= 100000) Achievements.Unlock("SCORE_100K");
                     else Audio.Play(Sfx.StageFail);
                     Go(Scene.StageResult);
                 }
@@ -315,7 +357,7 @@ public sealed class App
                         _name[0] = _name[1] = _name[2] = 'A'; _namePos = 0;
                         Go(Scene.NameEntry);
                     }
-                    else { _attract = false; _newRank = -1; Go(Scene.HiScores); }
+                    else { _attract = false; _newRank = -1; _viewTime = 8; Go(Scene.HiScores); }
                 }
                 break;
 
@@ -329,6 +371,19 @@ public sealed class App
     /// 得点が基準を超えたら残機を1つ増やす。
     /// 基準は下がらないので、やり直しでスコアが戻っても同じ基準で二度は増えない。
     /// </summary>
+    void StageClearAchievements(World w)
+    {
+        if (_stage == 4) Achievements.Unlock("STAGE4");
+        if (_stage == 8) Achievements.Unlock("STAGE8");
+        if (_stage == 16) Achievements.Unlock("STAGE16");
+        if (w.Misses == 0) Achievements.Unlock("NO_MISS");
+        if (w.TimeLeft >= World.StageTime - 120) Achievements.Unlock("SPEEDY");
+        // 柴犬の3色それぞれでクリアしたか (途中経過は画面に出さない)
+        Achievements.Mark("_SHIBA" + _shiba);
+        if (Achievements.Has("_SHIBA0") && Achievements.Has("_SHIBA1") && Achievements.Has("_SHIBA2"))
+            Achievements.Unlock("ALL_SHIBA");
+    }
+
     void CheckExtend(World w)
     {
         while (_score >= _nextExtend)
@@ -337,6 +392,7 @@ public sealed class App
             w.Lives++;
             w.Announce("1UP!", 0x60FF90);
             Audio.Play(Sfx.Extend);
+            Achievements.Unlock("ONE_UP");
         }
     }
 
@@ -391,6 +447,8 @@ public sealed class App
                 else
                 {
                     _newRank = _hi.Add(new string(_name), _score, _stage);
+                    _viewTime = 8;
+                    Achievements.Unlock("HIGH_SCORE");
                     Audio.Play(Sfx.NameOk);
                     _attract = false;
                     Go(Scene.HiScores);
@@ -416,6 +474,7 @@ public sealed class App
             case Scene.Title: DrawTitle(); break;
             case Scene.HiScores: DrawBackdrop(); DrawHiScores(); break;
             case Scene.NameEntry: DrawBackdrop(); DrawNameEntry(); break;
+            case Scene.Achievements: DrawBackdrop(); DrawAchievements(); break;
             default:
                 if (_world != null)
                 {
@@ -425,6 +484,49 @@ public sealed class App
                 }
                 break;
         }
+        Achievements.DrawToast();   // 実績解除の通知はいちばん上に重ねる
+    }
+
+    /// <summary>実績画面。8列 x 3行のアイコンと、選んだ実績の名前・条件・解除日時。未解除は「?」だけ。</summary>
+    void DrawAchievements()
+    {
+        const float CX = Gfx.W / 2f;
+        var all = Achievements.All;
+        Box(40, 10, 560, 380);
+        Gfx.TextCenter("ACHIEVEMENTS", CX, 22, 0xFFD840, 3);
+        Gfx.TextCenter($"{Achievements.Unlocked} / {all.Length} UNLOCKED", CX, 52, 0x9AA4C8);
+
+        const float GX = 64, GY = 70, Cell = 64;
+        for (int i = 0; i < all.Length; i++)
+        {
+            float x = GX + i % Achievements.Columns * Cell + 12, y = GY + i / Achievements.Columns * Cell + 8;
+            Achievements.DrawPlate(i, x, y, Achievements.Has(all[i].Id));
+            if (i == _achCursor)
+            {
+                uint col = ((int)(_clock * 4) & 1) == 0 ? 0xFFFFFFu : 0xFFD840u;
+                Gfx.Frame(x - 4, y - 4, 48, 48, col);
+                Gfx.Frame(x - 3, y - 3, 46, 46, col);
+            }
+        }
+
+        // 選んでいる実績の説明
+        var def = all[_achCursor];
+        var when = Achievements.When(def.Id);
+        Gfx.Fill(64, 270, 512, 84, 0x0C0E18, 200);
+        Gfx.Frame(64, 270, 512, 84, 0x3A4468);
+        if (when is DateTimeOffset t)
+        {
+            Gfx.TextCenter(def.Name, CX, 280, 0xFFFFFF, 2);
+            Gfx.TextCenter(def.Desc, CX, 306, 0xC0C8E0);
+            Gfx.TextCenter("UNLOCKED " + t.ToString("yyyy-MM-dd HH:mm"), CX, 330, 0xFFD840);
+        }
+        else
+        {
+            Gfx.TextCenter("??????", CX, 280, 0x5A6488, 2);
+            Gfx.TextCenter("??????????????????", CX, 306, 0x5A6488);
+            Gfx.TextCenter("LOCKED", CX, 330, 0x5A6488);
+        }
+        Gfx.TextCenter("ARROWS: SELECT    ESC / SPACE: BACK", CX, 366, 0x9AA4C8);
     }
 
     static Sprite GroundTile(World? w, int x, int y)
@@ -883,6 +985,7 @@ public sealed class App
         Gfx.TextCenter("PEE ON 3 POLES TO CLAIM THE TRIANGLE AS YOUR TERRITORY.", CX, 280, 0xE0F0E0);
         Gfx.TextCenter("DON'T GET SURROUNDED BY OTHER DOGS. WATCH OUT FOR CARS!", CX, 292, 0xE0F0E0);
         Gfx.TextCenter("ARROWS/WASD:MOVE  SPACE/Z:PEE  F11:FULLSCREEN  ESC:QUIT", CX, 310, 0xA8C0A8);
+        Gfx.TextCenter("UP: HIGH SCORES     DOWN: ACHIEVEMENTS", CX, 322, 0xFFE040);
 
         // 行進する犬たち
         int count = Breed.EnemyBreedCount + 1;
