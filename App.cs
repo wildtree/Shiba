@@ -49,6 +49,8 @@ public sealed class App
     // 残機が増える得点: 最初は 20,000 点、その後は 40,000 点ごと (60,000 / 100,000 / ...)
     const int FirstExtend = 20000, ExtendEvery = 40000;
     int _nextExtend = FirstExtend;
+    const float OneUpBannerTime = 2.2f;
+    float _oneUpT;           // >0 の間、フィールド中央に「1UP!」のバナーを出す
 
     readonly int _startStage;
     readonly bool _startBonus;
@@ -201,6 +203,7 @@ public sealed class App
     {
         _t += dt;
         Achievements.UpdateToast(dt);
+        if (_oneUpT > 0) _oneUpT -= dt;
         switch (_scene)
         {
             case Scene.Title:
@@ -390,7 +393,7 @@ public sealed class App
         {
             _nextExtend += ExtendEvery;
             w.Lives++;
-            w.Announce("1UP!", 0x60FF90);
+            _oneUpT = OneUpBannerTime;
             Audio.Play(Sfx.Extend);
             Achievements.Unlock("ONE_UP");
         }
@@ -481,6 +484,7 @@ public sealed class App
                     DrawField(_world);
                     DrawPanel(_world);
                     DrawOverlay(_world);
+                    if (_oneUpT > 0) DrawOneUpBanner();
                 }
                 break;
         }
@@ -927,6 +931,34 @@ public sealed class App
                 break;
             }
         }
+    }
+
+    /// <summary>
+    /// 残機が増えたときのバナー。フィールド中央に帯を出し、赤い大きな「1UP!」を白でふちどって表示する。
+    /// 最初は帯が横に伸びて出てきて、最後はフェードして消える。
+    /// </summary>
+    void DrawOneUpBanner()
+    {
+        const string Text = "1UP!";
+        const int Scale = 5;
+        float age = OneUpBannerTime - _oneUpT;
+        float open = Math.Min(age / 0.15f, 1f);                 // 帯が伸びる
+        byte fade = (byte)(Math.Min(_oneUpT / 0.3f, 1f) * 255);  // 消えるときに薄く
+        float bandW = FieldW * open, bx = (FieldW - bandW) / 2, by = 166;
+
+        Gfx.Fill(bx, by, bandW, 64, 0x000000, (byte)(fade * 0.7f));
+        Gfx.Fill(bx, by, bandW, 3, 0xFF3030, fade);
+        Gfx.Fill(bx, by + 61, bandW, 3, 0xFF3030, fade);
+        if (open < 1f || fade < 60) return;
+
+        float tx = MathF.Floor(FieldW / 2f - Text.Length * 4 * Scale), ty = by + 12;
+        // 文字が少しはねる
+        if (age < 0.4f) ty -= MathF.Sin(age / 0.4f * MathF.PI) * 6;
+        uint rim = ((int)(_clock * 10) & 1) == 0 ? 0xFFFFFFu : 0xFFE040u;
+        for (int oy = -2; oy <= 2; oy += 2)
+            for (int ox = -2; ox <= 2; ox += 2)
+                if (ox != 0 || oy != 0) Gfx.Text(Text, tx + ox, ty + oy, rim, Scale, shadow: false);
+        Gfx.Text(Text, tx, ty, 0xE82020, Scale, shadow: false);
     }
 
     static void Box(float x, float y, float w, float h)
