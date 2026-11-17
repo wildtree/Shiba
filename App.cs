@@ -30,6 +30,17 @@ public sealed class App
 
     // 接続中のゲームパッド (ID → ハンドル)
     readonly Dictionary<uint, IntPtr> _pads = new();
+    // ゲームパッドとして認識されない汎用のUSBジョイパッド (ID → ハンドル)
+    readonly Dictionary<uint, IntPtr> _joys = new();
+
+    /// <summary>バージョン番号。ShibaJintori.csproj の Version から取る。</summary>
+    static readonly string AppVersion = FormatVersion();
+
+    static string FormatVersion()
+    {
+        var v = typeof(App).Assembly.GetName().Version;
+        return v == null ? "1.0.1" : $"{v.Major}.{v.Minor}.{v.Build}";
+    }
     float _padKeepAlive;
 
     readonly int _startStage;
@@ -53,7 +64,7 @@ public sealed class App
 
         // アプリ名とID。LinuxではこのIDがウィンドウのクラス名になり、
         // shibajintori.desktop の StartupWMClass と一致させることでドックのアイコンが正しく出る
-        SDL.SetAppMetadata("Shiba Jintori", "1.0.0", "shibajintori");
+        SDL.SetAppMetadata("Shiba Jintori", AppVersion, "shibajintori");
 
         if (!SDL.Init(SDL.InitFlags.Video))
         {
@@ -88,6 +99,14 @@ public sealed class App
                 else if (type == SDL.EventType.GamepadButtonDown) Input.PadButton(e.GButton.Button, true);
                 else if (type == SDL.EventType.GamepadButtonUp) Input.PadButton(e.GButton.Button, false);
                 else if (type == SDL.EventType.GamepadAxisMotion) Input.PadAxis(e.GAxis.Axis, e.GAxis.Value);
+                // 汎用ジョイパッド。ゲームパッドとして開いたものもジョイスティックのイベントを出すので、
+                // こちらで開いたもの(_joys)だけを相手にする
+                else if (type == SDL.EventType.JoystickAdded) OpenJoy(e.JDevice.Which);
+                else if (type == SDL.EventType.JoystickRemoved) CloseJoy(e.JDevice.Which);
+                else if (type == SDL.EventType.JoystickButtonDown) { if (_joys.ContainsKey(e.JButton.Which)) Input.JoyButton(e.JButton.Button, true); }
+                else if (type == SDL.EventType.JoystickButtonUp) { if (_joys.ContainsKey(e.JButton.Which)) Input.JoyButton(e.JButton.Button, false); }
+                else if (type == SDL.EventType.JoystickAxisMotion) { if (_joys.ContainsKey(e.JAxis.Which)) Input.JoyAxis(e.JAxis.Axis, e.JAxis.Value); }
+                else if (type == SDL.EventType.JoystickHatMotion) { if (_joys.ContainsKey(e.JHat.Which) && e.JHat.Hat == 0) Input.JoyHat(e.JHat.Value); }
             }
             KeepPadsAwake();
 
@@ -109,6 +128,8 @@ public sealed class App
 
         foreach (var pad in _pads.Values) SDL.CloseGamepad(pad);
         _pads.Clear();
+        foreach (var joy in _joys.Values) SDL.CloseJoystick(joy);
+        _joys.Clear();
         Audio.Shutdown();
         SDL.Quit();
     }
@@ -120,6 +141,25 @@ public sealed class App
         if (pad == IntPtr.Zero) { Console.Error.WriteLine("OpenGamepad failed: " + SDL.GetError()); return; }
         _pads[id] = pad;
         Console.WriteLine("Gamepad connected: " + (SDL.GetGamepadName(pad) ?? "unknown"));
+    }
+
+    void OpenJoy(uint id)
+    {
+        // SDLがゲームパッドとして扱えるものは OpenPad 側に任せる
+        if (SDL.IsGamepad(id) || _joys.ContainsKey(id)) return;
+        IntPtr joy = SDL.OpenJoystick(id);
+        if (joy == IntPtr.Zero) { Console.Error.WriteLine("OpenJoystick failed: " + SDL.GetError()); return; }
+        _joys[id] = joy;
+        Console.WriteLine("Joystick connected: " + (SDL.GetJoystickName(joy) ?? "unknown"));
+    }
+
+    void CloseJoy(uint id)
+    {
+        if (!_joys.Remove(id, out IntPtr joy)) return;
+        SDL.CloseJoystick(joy);
+        Input.Reset();
+        if (_scene == Scene.Play) _paused = true;
+        Console.WriteLine("Joystick disconnected");
     }
 
     void ClosePad(uint id)
@@ -664,7 +704,7 @@ public sealed class App
             y += 21;
         }
 
-        if (_pads.Count > 0) Gfx.Text("GAMEPAD: OK", X, 334, 0x60D080);
+        if (_pads.Count + _joys.Count > 0) Gfx.Text("GAMEPAD: OK", X, 334, 0x60D080);
         Gfx.Text("ARROWS: MOVE", X, 348, 0x7C86AC);
         Gfx.Text("SPACE : PEE (3s)", X, 360, 0x7C86AC);
         Gfx.Text("P:PAUSE ESC:QUIT", X, 372, 0x7C86AC);
@@ -831,6 +871,7 @@ public sealed class App
             for (int mx = 0; mx < 8; mx++)
                 if (mark[my][mx] == 'X') Gfx.Fill(cx0 + c1.Length * 8 + mx, 381 + my, 1, 1, 0x90A890);
         Gfx.Text(c2, cx0 + (c1.Length + 1) * 8, 381, 0x90A890);
+        Gfx.Text("v" + AppVersion, Gfx.W - 8 - (AppVersion.Length + 1) * 8, 381, 0x708870);
     }
 
     void DrawHiScores()

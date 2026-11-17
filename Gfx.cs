@@ -183,7 +183,7 @@ public static class Art
 {
     /// <summary>
     /// [犬種][0:正面 1:正面歩き 2:後ろ 3:後ろ歩き 4:右向き 5:右向き歩き
-    ///        6:おしっこ(電柱が右。左は反転) 7:おしっこ(電柱が上) 8:おしっこ(電柱が下)]
+    ///        6:おしっこ(電柱が右。お尻をこちらに向けた絵。左は反転) 7:おしっこ(電柱が上) 8:おしっこ(電柱が下)]
     /// </summary>
     public static Sprite[][] Dogs = [];
     public static Sprite Pole, PeeMark, PoleBand, Grass0, Grass1, RoadTop, RoadBottom, Paw;
@@ -194,6 +194,19 @@ public static class Art
     public static void Load()
     {
         static string[] Join(string a, string b) => [.. Gfx.Rows(a), .. Gfx.Rows(b)];
+
+        // rows の startRow 行目から patch を重ねる。patch の '_' は元の絵を残す
+        static string[] Overlay(string[] rows, int startRow, string[] patch)
+        {
+            for (int y = 0; y < patch.Length; y++)
+            {
+                var line = rows[startRow + y].ToCharArray();
+                for (int x = 0; x < line.Length && x < patch[y].Length; x++)
+                    if (patch[y][x] != '_') line[x] = patch[y][x];
+                rows[startRow + y] = new string(line);
+            }
+            return rows;
+        }
 
         Dogs = new Sprite[Breed.All.Length][];
         for (int i = 0; i < Breed.All.Length; i++)
@@ -214,7 +227,7 @@ public static class Art
                 Gfx.MakeSprite(Join(bh, SpriteData.BackBodyStride), pal),
                 Gfx.MakeSprite(Join(st, SpriteData.SideLegsStand), pal),
                 Gfx.MakeSprite(Join(st, SpriteData.SideLegsStride), pal),
-                Gfx.MakeSprite(Join(fh, SpriteData.FrontBodyPee), pal),
+                Gfx.MakeSprite(Overlay(Join(bh, SpriteData.BackBodyPee), 6, Gfx.Rows(SpriteData.BackPeeTail)), pal),
                 Gfx.MakeSprite([.. Gfx.Rows(st)[..11], .. Gfx.Rows(SpriteData.SideBottomPeeFar)], pal),
                 Gfx.MakeSprite([.. Gfx.Rows(st)[..12], .. Gfx.Rows(SpriteData.SideBottomPeeNear)], pal),
             ];
@@ -353,6 +366,39 @@ public static class Input
             case SDL.GamepadButton.Back:
                 PadKey(SDL.Scancode.Escape, down); break;
         }
+    }
+
+    // ---------------- 汎用のUSBジョイパッド ----------------
+    // SDLがボタン配置を知らないパッド(ゲームパッドとして認識されないもの)用。
+    // 軸0/1 を左スティック、ハット0 を十字キーとして扱う。ボタンは機種ごとに並びが違うので、
+    // 4番目(番号3)=やり直し、9番目(番号8)=BACK、10番目(番号9)=START、それ以外はすべて「おしっこ/決定」にする。
+
+    public static void JoyButton(byte button, bool down)
+    {
+        var mapped = button switch
+        {
+            3 => SDL.GamepadButton.North,
+            8 => SDL.GamepadButton.Back,
+            9 => SDL.GamepadButton.Start,
+            _ => SDL.GamepadButton.South,
+        };
+        PadButton((byte)mapped, down);
+    }
+
+    public static void JoyAxis(byte axis, short value)
+    {
+        if (axis == 0) PadAxis((byte)SDL.GamepadAxis.LeftX, value);
+        else if (axis == 1) PadAxis((byte)SDL.GamepadAxis.LeftY, value);
+    }
+
+    /// <summary>ハットスイッチ(十字キー)。value は 上=1 右=2 下=4 左=8 の組み合わせ。</summary>
+    public static void JoyHat(byte value)
+    {
+        _padDpad[(int)Dir.Up] = (value & 1) != 0;
+        _padDpad[(int)Dir.Right] = (value & 2) != 0;
+        _padDpad[(int)Dir.Down] = (value & 4) != 0;
+        _padDpad[(int)Dir.Left] = (value & 8) != 0;
+        SyncPadDirs();
     }
 
     public static void PadAxis(byte axis, short value)

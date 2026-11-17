@@ -190,14 +190,23 @@ public static class SpriteData
         """;
 
     // ---------- おしっこポーズ ----------
-    // 正面向きで画面右側の後ろ足を上げる (電柱が右。左は反転して使う)
-    public const string FrontBodyPee = """
-        ...OBRRRRRRBO...
-        ...OBBRRRRBBOOO.
-        ...OBDRRRRBBBLLO
-        ...OBLOBBOBOOOO.
+    // お尻をこちらに向けて、画面右側の後ろ足を上げる (電柱が右。左は反転して使う)。
+    // 後ろ向きの頭(10行)に続ける
+    public const string BackBodyPee = """
+        ...OBBOOOOBBOOO.
+        ...OBBBBBBBBLLO.
+        ...OBBBBBBBBOOO.
+        ...OBLOBBOBO....
         ...OLLO..OO.....
         ...OOO..........
+        """;
+
+    // お尻の上に乗る、くるんと巻いたしっぽ。上の絵の 6〜9 行目に重ねる ( _ は元の絵のまま)
+    public const string BackPeeTail = """
+        ______OOOO______
+        _____OTTTTO_____
+        _____OTSSTO_____
+        _____OTTTTO_____
         """;
 
     // 横向きで奥側の後ろ足を水平に上げる (電柱が上)。横向き上部の先頭11行に続ける
