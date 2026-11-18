@@ -1,2 +1,4 @@
 obj/
 bin/
+android/obj/
+android/bin/

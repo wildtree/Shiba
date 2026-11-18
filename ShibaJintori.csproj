@@ -14,8 +14,8 @@
     <Product>Shiba Jintori</Product>
     <!-- Windowsの実行ファイルに埋め込むアイコン -->
     <ApplicationIcon>packaging/icons/shibajintori.ico</ApplicationIcon>
-    <!-- 配布物の作業フォルダはビルド対象から外す -->
-    <DefaultItemExcludes>$(DefaultItemExcludes);dist/**;packaging/**</DefaultItemExcludes>
+    <!-- 配布物の作業フォルダ、Android版、開発用ツールはビルド対象から外す -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);dist/**;packaging/**;android/**;tools/**;pc8801/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <!--

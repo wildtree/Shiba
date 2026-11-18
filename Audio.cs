@@ -1,3 +1,6 @@
+#if ANDROID
+using Android.Media;
+#endif
 using SDL3;
 
 namespace ShibaJintori;
@@ -11,9 +14,13 @@ public enum Sfx
 
 public enum Tune { None, Title, Game }
 
+/// <summary>音の出し方。All: BGMも効果音も / SfxOnly: 効果音だけ / Silent: どちらも鳴らさない。</summary>
+public enum SoundMode { All, SfxOnly, Silent }
+
 /// <summary>
 /// 効果音とBGM。音声ファイルは使わず、矩形波・三角波・ノイズをその場で合成して
-/// SDL のオーディオストリームへ流し込む(昔のゲーム機風の音)。
+/// 音の出口へ流し込む(昔のゲーム機風の音)。
+/// 合成の部分は共通で、出口だけが OS ごとに違う (PC: SDL のオーディオストリーム / Android: AudioTrack)。
 /// </summary>
 public static class Audio
 {
@@ -29,7 +36,6 @@ public static class Audio
         public float NoiseOut;
     }
 
-    static IntPtr _stream;
     static bool _ok;
     static readonly List<Voice> _voices = new();
     static readonly Random _rng = new();
@@ -38,29 +44,69 @@ public static class Audio
     static short[]? _music;
     static int _musicPos;
     static Tune _current = Tune.None;
-    public static bool Muted;
+    /// <summary>音の出し方。Silent は効果音も鳴らさない「マナーモード」。</summary>
+    public static SoundMode Mode { get; private set; } = SoundMode.All;
+
+    /// <summary>音を出せているか (端末の音の出口を開けたか)。画面の表示に使う。</summary>
+    public static bool Ok => _ok;
+
+    /// <summary>BGMあり → BGMなし(効果音だけ) → 全部なし、の順に切り替えて覚えておく。</summary>
+    public static void CycleMode()
+    {
+        Mode = Mode switch { SoundMode.All => SoundMode.SfxOnly, SoundMode.SfxOnly => SoundMode.Silent, _ => SoundMode.All };
+        if (Mode == SoundMode.Silent) lock (_voices) _voices.Clear();   // 鳴りかけの音も止める
+        SaveMode();
+    }
+
+    static readonly string[] ModeNames = ["all", "sfx", "silent"];
+
+    static void LoadMode()
+    {
+        using var doc = SaveData.ReadJson(SaveData.PathOf("settings.json"));
+        if (doc == null) return;
+        string name = SaveData.GetString(doc.RootElement, "sound", "all");
+        int i = Array.IndexOf(ModeNames, name);
+        if (i >= 0) Mode = (SoundMode)i;
+    }
+
+    static void SaveMode() => SaveData.WriteJson(SaveData.PathOf("settings.json"), w =>
+    {
+        w.WriteStartObject();
+        w.WriteString("sound", ModeNames[(int)Mode]);
+        w.WriteEndObject();
+    });
+
+    /// <summary>音まわりの覚え書き。Android では logcat (タグ ShibaJintori) に出る。</summary>
+    static void Note(string msg)
+    {
+#if ANDROID
+        Android.Util.Log.Info("ShibaJintori", "audio: " + msg);
+#else
+        Console.Error.WriteLine("audio: " + msg);
+#endif
+    }
 
     public static void Init()
     {
+        if (_ok) { Note("already open"); return; }   // 画面が作り直されたときに二重に開かないように
         try
         {
-            var spec = new SDL.AudioSpec { Format = SDL.AudioFormat.AudioS16LE, Channels = 1, Freq = Rate };
-            _stream = SDL.OpenAudioDeviceStream(SDL.AudioDeviceDefaultPlayback, spec, null, IntPtr.Zero);
-            if (_stream == IntPtr.Zero) return;
-            SDL.ResumeAudioStreamDevice(_stream);
+            LoadMode();
+            if (!OpenDevice()) { Note("device not opened - no sound"); return; }
             BuildTunes();
             _ok = true;
+            Note($"ready (mode={Mode})");
         }
         catch (Exception e)
         {
-            Console.Error.WriteLine("Audio disabled: " + e.Message);
+            Note("disabled: " + e);
         }
     }
 
     public static void Shutdown()
     {
-        if (_stream != IntPtr.Zero) SDL.DestroyAudioStream(_stream);
-        _stream = IntPtr.Zero; _ok = false;
+        CloseDevice();
+        _ok = false;
     }
 
     public static void PlayMusic(Tune t)
@@ -71,21 +117,34 @@ public static class Audio
         _musicPos = 0;
     }
 
-    /// <summary>毎フレーム呼ぶ。再生待ちが0.1秒分を切ったら続きを合成して足す。</summary>
+    /// <summary>
+    /// 毎フレーム呼ぶ。PC版はここで続きを合成して流し込む。
+    /// Android版は専用のスレッドが鳴らしているので、ここですることはない。
+    /// </summary>
     public static void Update()
     {
         if (!_ok) return;
-        int guard = 0;
-        while (SDL.GetAudioStreamQueued(_stream) < Rate * 2 / 10 && guard++ < 40)
+        Pump();
+    }
+
+    /// <summary>
+    /// 次の len バイトぶんの音を作って buf に入れる (BGM + 鳴っている効果音を混ぜる)。
+    /// Android版では音のスレッドから呼ばれるので、効果音の一覧はロックで守る。
+    /// </summary>
+    static void Mix(byte[] buf, int len)
+    {
+        int n = len / 2;
+        var music = _music;
+        lock (_voices)
         {
-            int n = _bytes.Length / 2;
             for (int i = 0; i < n; i++)
             {
                 float v = 0;
-                if (_music != null && _music.Length > 0)
+                if (music != null && music.Length > 0)
                 {
-                    if (!Muted) v += _music[_musicPos] / 32768f;
-                    if (++_musicPos >= _music.Length) _musicPos = 0;
+                    if (_musicPos >= music.Length) _musicPos = 0;
+                    if (Mode == SoundMode.All) v += music[_musicPos] / 32768f;
+                    if (++_musicPos >= music.Length) _musicPos = 0;
                 }
                 for (int k = _voices.Count - 1; k >= 0; k--)
                 {
@@ -98,12 +157,138 @@ public static class Audio
                     if (++vo.Pos >= vo.Len) _voices.RemoveAt(k);
                 }
                 int s = (int)(Math.Clamp(v, -1f, 1f) * 30000);
-                _bytes[i * 2] = (byte)s;
-                _bytes[i * 2 + 1] = (byte)(s >> 8);
+                buf[i * 2] = (byte)s;
+                buf[i * 2 + 1] = (byte)(s >> 8);
             }
+        }
+    }
+
+    // ------------------------------------------------------------ 音の出口 (OSごと)
+#if ANDROID
+    // Android は専用のスレッドから AudioTrack へ書き込む。
+    // 書き込みは「空きができるまで待つ」やり方なので、これだけで 44.1kHz ちょうどの速さで進む
+    // (再生位置を見て間隔を測る必要がない)。
+    static AudioTrack? _track;
+    static Thread? _thread;
+    static volatile bool _running;
+    static long _written;         // これまでに書き込んだフレーム数 (ログ用)
+
+    static bool OpenDevice()
+    {
+        int min = AudioTrack.GetMinBufferSize(Rate, ChannelOut.Mono, Android.Media.Encoding.Pcm16bit);
+        int size = Math.Max(min, Rate * 2 * 2 / 10);      // 0.2秒ぶん
+        Note($"open rate={Rate} minBuffer={min} buffer={size}");
+        using var attrs = new AudioAttributes.Builder()
+            .SetUsage(AudioUsageKind.Game)!.SetContentType(AudioContentType.Music)!.Build()!;
+        using var fmt = new AudioFormat.Builder()
+            .SetEncoding(Android.Media.Encoding.Pcm16bit)!.SetSampleRate(Rate)!
+            .SetChannelMask(ChannelOut.Mono)!.Build()!;
+        try
+        {
+            _track = new AudioTrack.Builder()
+                .SetAudioAttributes(attrs)!.SetAudioFormat(fmt)!
+                .SetBufferSizeInBytes(size)!.SetTransferMode(AudioTrackMode.Stream)!.Build();
+        }
+        catch (Exception e)
+        {
+            // 端末によっては Builder で作れないことがあるので、昔ながらの作り方でもう一度試す
+            Note("builder failed (" + e.Message + ") - falling back");
+#pragma warning disable CA1422, CS0618
+            _track = new AudioTrack(Android.Media.Stream.Music, Rate, ChannelOut.Mono,
+                                    Android.Media.Encoding.Pcm16bit, size, AudioTrackMode.Stream);
+#pragma warning restore CA1422, CS0618
+        }
+        if (_track == null) { Note("AudioTrack could not be created"); return false; }
+        Note($"track state={_track.State} session={_track.AudioSessionId}");
+        if (_track.State != AudioTrackState.Initialized) { Note("track not initialized"); CloseDevice(); return false; }
+
+        _written = 0;
+        _track.Play();
+        _running = true;
+        _thread = new Thread(AudioLoop) { IsBackground = true, Name = "shiba-audio", Priority = ThreadPriority.AboveNormal };
+        _thread.Start();
+        Note($"play state={_track.PlayState}");
+        return true;
+    }
+
+    /// <summary>音のスレッド。合成しては AudioTrack に渡す、のくり返し。</summary>
+    static void AudioLoop()
+    {
+        var track = _track;
+        if (track == null) return;
+        var buf = new byte[1024];
+        int reports = 0;
+        while (_running)
+        {
+            Mix(buf, buf.Length);
+            try
+            {
+                int n = track.Write(buf, 0, buf.Length, WriteMode.Blocking);
+                if (n < 0) { Note($"write error {n}"); break; }
+                _written += n / 2;
+            }
+            catch (Exception e)
+            {
+                Note("write: " + e.Message);
+                break;
+            }
+            // 最初の数秒だけ、ちゃんと進んでいるかを記録する
+            if (reports < 4 && _written > (long)Rate * (reports + 1) / 2)
+            {
+                reports++;
+                Note($"written={_written} head={track.PlaybackHeadPosition} mode={Mode}");
+            }
+        }
+        Note("audio thread finished");
+    }
+
+    static void Pump() { }        // 音のスレッドがやるので、ここですることはない
+
+    static void CloseDevice()
+    {
+        _running = false;
+        var track = _track;
+        _track = null;
+        if (track == null) return;
+        try { track.Pause(); track.Flush(); track.Stop(); } catch (Exception e) { Note("stop: " + e.Message); }
+        _thread?.Join(1000);
+        _thread = null;
+        track.Release();
+        track.Dispose();
+    }
+
+    /// <summary>アプリが裏に回ったとき/戻ったとき (Android版のみ)。</summary>
+    public static void Suspend() { try { _track?.Pause(); } catch (Exception e) { Note("pause: " + e.Message); } }
+    public static void Resume() { try { _track?.Play(); } catch (Exception e) { Note("resume: " + e.Message); } }
+#else
+    static IntPtr _stream;
+
+    static bool OpenDevice()
+    {
+        var spec = new SDL.AudioSpec { Format = SDL.AudioFormat.AudioS16LE, Channels = 1, Freq = Rate };
+        _stream = SDL.OpenAudioDeviceStream(SDL.AudioDeviceDefaultPlayback, spec, null, IntPtr.Zero);
+        if (_stream == IntPtr.Zero) return false;
+        SDL.ResumeAudioStreamDevice(_stream);
+        return true;
+    }
+
+    static void CloseDevice()
+    {
+        if (_stream != IntPtr.Zero) SDL.DestroyAudioStream(_stream);
+        _stream = IntPtr.Zero;
+    }
+
+    /// <summary>再生待ちが0.1秒分を切ったら、続きを合成して足す。</summary>
+    static void Pump()
+    {
+        int guard = 0;
+        while (SDL.GetAudioStreamQueued(_stream) < Rate * 2 / 10 && guard++ < 40)
+        {
+            Mix(_bytes, _bytes.Length);
             SDL.PutAudioStreamData(_stream, _bytes, _bytes.Length);
         }
     }
+#endif
 
     static float Osc(Voice v, float freq)
     {
@@ -128,12 +313,15 @@ public static class Audio
 
     static void V(int wave, float f0, float f1, float dur, float vol, float delay = 0)
     {
-        if (_voices.Count >= 40) return;
-        _voices.Add(new Voice
+        lock (_voices)
         {
-            Wave = wave, F0 = f0, F1 = f1, Vol = vol,
-            Len = Math.Max(1, (int)(dur * Rate)), Delay = (int)(delay * Rate),
-        });
+            if (_voices.Count >= 40) return;
+            _voices.Add(new Voice
+            {
+                Wave = wave, F0 = f0, F1 = f1, Vol = vol,
+                Len = Math.Max(1, (int)(dur * Rate)), Delay = (int)(delay * Rate),
+            });
+        }
     }
 
     /// <summary>音名を順番に鳴らす(ジングル用)。</summary>
@@ -150,7 +338,7 @@ public static class Audio
 
     public static void Play(Sfx s)
     {
-        if (!_ok) return;
+        if (!_ok || Mode == SoundMode.Silent) return;
         float r = (float)_rng.NextDouble();
         switch (s)
         {

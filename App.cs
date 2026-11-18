@@ -3,7 +3,7 @@ using SDL3;
 namespace ShibaJintori;
 
 /// <summary>画面遷移(タイトル/デモ/プレイ/結果/ネーム入力/ハイスコア)と描画。</summary>
-public sealed class App
+public sealed partial class App
 {
     enum Scene { Title, HiScores, Demo, StageIntro, Play, StageResult, GameOver, NameEntry, Achievements }
 
@@ -11,6 +11,13 @@ public sealed class App
     float _viewTime = 8;     // ハイスコア画面を自動で閉じるまでの秒数
 
     const int FieldW = World.FW * World.Tile;   // 480
+
+    // 画面に出す操作の案内。タッチ操作 (Android版) のときは言い方を変える
+#if ANDROID
+    const bool Touch = true;
+#else
+    const bool Touch = false;
+#endif
     const uint PanelBg = 0x1B2033;
 
     Scene _scene = Scene.Title;
@@ -44,7 +51,9 @@ public sealed class App
         var v = typeof(App).Assembly.GetName().Version;
         return v == null ? "1.0.2" : $"{v.Major}.{v.Minor}.{v.Build}";
     }
-    float _padKeepAlive;
+#if !ANDROID
+    float _padKeepAlive;   // PC版のゲームパッド維持用
+#endif
 
     // 残機が増える得点: 最初は 20,000 点、その後は 40,000 点ごと (60,000 / 100,000 / ...)
     const int FirstExtend = 20000, ExtendEvery = 40000;
@@ -62,6 +71,7 @@ public sealed class App
         _startBonus = startBonus;
     }
 
+#if !ANDROID   // ここから下は PC版 (SDL) 専用。Android版の起動と毎フレームの処理は android/AppMobile.cs にある
     public void Run()
     {
         // ゲームパッド関連の設定 (SDL.Init より前に指定する)
@@ -123,7 +133,7 @@ public sealed class App
             _clock += dt;
 
             if (Input.Pressed(SDL.Scancode.F11)) Gfx.ToggleFullscreen();
-            if (Input.Pressed(SDL.Scancode.M)) Audio.Muted = !Audio.Muted;
+            if (Input.Pressed(SDL.Scancode.M)) Audio.CycleMode();   // BGM → 効果音だけ → 無音
 
             Update(dt);
             Draw();
@@ -192,6 +202,7 @@ public sealed class App
         _padKeepAlive = 0;
         foreach (var pad in _pads.Values) SDL.RumbleGamepad(pad, 0, 0, 0);
     }
+#endif
 
     void Go(Scene s) { _scene = s; _t = 0; }
 
@@ -526,7 +537,7 @@ public sealed class App
             Gfx.TextCenter("??????????????????", CX, 306, 0x5A6488);
             Gfx.TextCenter("LOCKED", CX, 330, 0x5A6488);
         }
-        Gfx.TextCenter("ARROWS: SELECT    ESC / SPACE: BACK", CX, 366, 0x9AA4C8);
+        Gfx.TextCenter(Touch ? "PAD: SELECT    PEE: BACK" : "ARROWS: SELECT    ESC / SPACE: BACK", CX, 366, 0x9AA4C8);
     }
 
     static Sprite GroundTile(World? w, int x, int y)
@@ -843,7 +854,7 @@ public sealed class App
         Gfx.Text("ARROWS: MOVE", X, 348, 0x7C86AC);
         Gfx.Text("SPACE : PEE (3s)", X, 360, 0x7C86AC);
         Gfx.Text("P:PAUSE ESC:QUIT", X, 372, 0x7C86AC);
-        Gfx.Text("M:BGM  F11:FULL", X, 384, 0x7C86AC);
+        Gfx.Text(Audio.Mode switch { SoundMode.All => "M:SOUND ALL", SoundMode.SfxOnly => "M:SOUND SE", _ => "M:SOUND OFF" } + "  F11:FULL", X, 384, 0x7C86AC);
     }
 
     void DrawOverlay(World w)
@@ -868,7 +879,8 @@ public sealed class App
                 Gfx.Text("DOGS CAUGHT", 124, 190); Gfx.Text($"{w.BonusCaught} / {enemies}", 316, 190, 0xFFFFFF);
                 if (w.Perfect) Gfx.TextCenter($"PERFECT BONUS +{World.BonusPerfect}", CX, 208, 0xFFF060);
                 Gfx.TextCenter($"TOTAL +{w.Score - _bonusStartScore}", CX, 228, 0xFFE040, 2);
-                if (_t > 1.5f && ((int)(_clock * 2) & 1) == 0) Gfx.TextCenter("PRESS SPACE: NEXT STAGE", CX, 254, 0x9AA4C8);
+                if (_t > 1.5f && ((int)(_clock * 2) & 1) == 0)
+                    Gfx.TextCenter(Touch ? "TAP PEE: NEXT STAGE" : "PRESS SPACE: NEXT STAGE", CX, 254, 0x9AA4C8);
                 break;
             }
 
@@ -882,14 +894,14 @@ public sealed class App
             case Scene.Play when _paused:
                 Box(120, 150, 240, 96);
                 Gfx.TextCenter("PAUSE", CX, 160, 0xFFFFFF, 3);
-                Gfx.TextCenter("P / START : RESUME", CX, 194, 0xFFFFFF);
-                if (!w.Bonus) Gfx.TextCenter("R / Y     : RETRY STAGE", CX, 208, 0xFFE040);
-                Gfx.TextCenter("ESC / BACK: TITLE", CX, 222, 0x9AA4C8);
+                Gfx.TextCenter(Touch ? "START   : RESUME" : "P / START : RESUME", CX, 194, 0xFFFFFF);
+                if (!w.Bonus) Gfx.TextCenter(Touch ? "GIVE UP : RETRY STAGE" : "R / Y     : RETRY STAGE", CX, 208, 0xFFE040);
+                Gfx.TextCenter(Touch ? "SELECT  : TITLE" : "ESC / BACK: TITLE", CX, 222, 0x9AA4C8);
                 break;
 
             case Scene.Demo:
                 if (((int)(_clock * 2) & 1) == 0) Gfx.TextCenter("- DEMO -", CX, 12, 0xFFFFFF, 2);
-                Gfx.TextCenter("PRESS ANY KEY", CX, 380, 0xFFE040);
+                Gfx.TextCenter(Touch ? "TOUCH THE PAD" : "PRESS ANY KEY", CX, 380, 0xFFE040);
                 break;
 
             case Scene.GameOver:
@@ -923,7 +935,8 @@ public sealed class App
                 if (w.Cleared) Gfx.TextCenter($"BONUS +{_bonus}", CX, y, 0xFFFFFF);
                 else Gfx.TextCenter("YOUR TERRITORY WAS TOO SMALL", CX, y, 0xFFFFFF);
                 if (_t > 1.5f && ((int)(_clock * 2) & 1) == 0)
-                    Gfx.TextCenter(w.Cleared ? "PRESS SPACE: NEXT STAGE" : "PRESS SPACE: TRY AGAIN", CX, y + 18, 0xFFE040);
+                    Gfx.TextCenter(w.Cleared ? (Touch ? "TAP PEE: NEXT STAGE" : "PRESS SPACE: NEXT STAGE")
+                                             : (Touch ? "TAP PEE: TRY AGAIN" : "PRESS SPACE: TRY AGAIN"), CX, y + 18, 0xFFE040);
                 break;
             }
         }
@@ -980,11 +993,12 @@ public sealed class App
         }
 
         if (((int)(_clock * 2) & 1) == 0)
-            Gfx.TextCenter("PRESS SPACE OR ENTER TO START", CX, 244, 0xFFFFFF, 2);
+            Gfx.TextCenter(Touch ? "PRESS START TO BEGIN" : "PRESS SPACE OR ENTER TO START", CX, 244, 0xFFFFFF, 2);
 
         Gfx.TextCenter("PEE ON 3 POLES TO CLAIM THE TRIANGLE AS YOUR TERRITORY.", CX, 280, 0xE0F0E0);
         Gfx.TextCenter("DON'T GET SURROUNDED BY OTHER DOGS. WATCH OUT FOR CARS!", CX, 292, 0xE0F0E0);
-        Gfx.TextCenter("ARROWS/WASD:MOVE  SPACE/Z:PEE  F11:FULLSCREEN  ESC:QUIT", CX, 310, 0xA8C0A8);
+        Gfx.TextCenter(Touch ? "PAD:MOVE   PEE:PEE ON A POLE   START:PAUSE"
+                             : "ARROWS/WASD:MOVE  SPACE/Z:PEE  F11:FULLSCREEN  ESC:QUIT", CX, 310, 0xA8C0A8);
         Gfx.TextCenter("UP: HIGH SCORES     DOWN: ACHIEVEMENTS", CX, 322, 0xFFE040);
 
         // 行進する犬たち
@@ -1025,7 +1039,7 @@ public sealed class App
             if (me) Gfx.Fill(196, y - 5, 248, 18, 0x38457A);
             Gfx.Text($"{i + 1,3}.   {e.Name}   {e.Score,7}    {e.Stage,2}", 216, y, col);
         }
-        Gfx.TextCenter("PRESS ANY KEY", CX, 338, 0x9AA4C8);
+        Gfx.TextCenter(Touch ? "TOUCH THE PAD" : "PRESS ANY KEY", CX, 338, 0x9AA4C8);
     }
 
     void DrawNameEntry()
@@ -1049,7 +1063,7 @@ public sealed class App
             }
         }
         Gfx.Draw(Art.Dogs[_shiba][((int)(_clock * 5) & 1)], CX + 110, 186, scale: 3);
-        Gfx.TextCenter("UP/DOWN OR TYPE: LETTER", CX, 264, 0x9AA4C8);
-        Gfx.TextCenter("LEFT/RIGHT: MOVE   ENTER: OK", CX, 278, 0x9AA4C8);
+        Gfx.TextCenter(Touch ? "UP/DOWN: LETTER" : "UP/DOWN OR TYPE: LETTER", CX, 264, 0x9AA4C8);
+        Gfx.TextCenter(Touch ? "LEFT/RIGHT: MOVE   PEE: OK" : "LEFT/RIGHT: MOVE   ENTER: OK", CX, 278, 0x9AA4C8);
     }
 }

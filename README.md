@@ -18,6 +18,51 @@ dotnet publish -c Release -r win-x64 --self-contained
 dotnet publish -c Release -r linux-x64 --self-contained
 ```
 
+## Android版
+
+`android/` にAndroid版があります。ゲームのルール (`World.cs`) や絵の原画 (`SpriteData.cs`) などはPC版と同じファイルを
+そのまま使い、描画・入力・音の出口だけをAndroid用に差し替えてあります。SDLは使いません。
+
+必要なもの: .NET SDK の `android` ワークロード (`dotnet workload install android`)、Android SDK、JDK 17以降。
+
+```
+dotnet build android/ShibaJintori.Android.csproj -c Release          # ビルド
+dotnet build android/ShibaJintori.Android.csproj -t:Install          # つないだ端末/エミュレータへ入れる
+dotnet publish android/ShibaJintori.Android.csproj -c Release        # APK を作る
+```
+
+APK は `android/bin/Release/net10.0-android/publish/` にできます。
+
+画面は縦向き固定で、通知領域はそのまま残ります。
+
+| 場所 | 中身 |
+|---|---|
+| 上 | ゲームフィールド (480x400 のドット絵を横幅いっぱいに拡大) |
+| 下 | ステータス領域 (ステージ・スコア・残り時間・残機・なわばり率・犬ごとの面積) |
+| ステータス領域の上 | 半透明の操作パッド |
+
+操作パッドは、左が十字キー (指をずらしたまま向きを変えられます)、右がおしっこ (PEE) とギブアップ、
+中央が START と SELECT、左上が音の切り替えです。ボタンを押すと軽く振動します
+(端末の「タップ時の振動」をオフにしている場合は振動しません)。
+
+| パッド | 動作 |
+|---|---|
+| 十字キー | 移動、タイトルでの色えらび、ハイスコア/実績画面、ネーム入力 |
+| PEE | 隣の電柱におしっこ、決定 (PC版のスペースキー) |
+| START | 決定、プレイ中はポーズ |
+| SELECT | タイトルへ戻る (タイトル画面では効きません。端末の「戻る」も同じ動き) |
+| GIVE UP | ステージのやり直し。押しまちがい防止のため、2回押しで決まります (1回目は赤く点滅して SURE? になる) |
+| 左上の音ボタン | 押すたびに BGM ON (BGMと効果音) → BGM OFF (効果音だけ) → SILENT (マナーモード: 効果音も鳴らさない) と回る。PC版の M キーと同じ |
+
+音の設定は覚えていて、次に起動したときも同じ状態から始まります
+(保存先はハイスコアと同じフォルダの `settings.json`)。
+
+音は端末のメディア音量で鳴ります。ゲーム中は音量キーでメディア音量を直接変えられるようにしてあるので、
+聞こえないときは音量キーを上げてみてください。操作パッドの左上が「NO SOUND」になっている場合は、
+端末側で音の出口を開けられなかったときです (その場合は `adb logcat -s ShibaJintori` に理由が出ます)。
+
+ハイスコアと実績は端末のアプリ専用フォルダに保存されます。アプリを裏に回すと自動でポーズし、音も止まります。
+
 ## 配布パッケージの作り方
 
 アイコンは `packaging/icons` にあります (Windows用 `.ico` と、Linux用の 16〜256 ドットの PNG)。
@@ -54,9 +99,11 @@ sudo apt install ./dist/shibajintori_<バージョン>_amd64.deb
 | スペース / Z / X | 隣の電柱におしっこ (3秒間動けない) |
 | P | ポーズ |
 | R (ポーズ中) | ギブアップ: そのステージを最初からやり直す (スコアはステージ開始時に戻り、残機はそのまま) |
-| M | BGM のオン/オフ |
+| M | 音の切り替え (BGMと効果音 → 効果音だけ → 無音、の順に回る) |
 | F11 | フルスクリーン切り替え |
 | Esc | タイトルへ戻る / 終了 |
+
+Android版の操作は「Android版」の節にあります。
 
 ゲームパッドにも対応しています (起動後につないでも認識します)。
 
@@ -137,12 +184,26 @@ SDL がボタン配置を知らない汎用の USB ジョイパッドも使え�
 | `SpriteData.cs` | ドット絵の原画 (文字で描いた 16x16 の絵) |
 | `Breeds.cs` | 犬種ごとの配色・耳の形・なわばりの色・性格 |
 | `World.cs` | ゲームのルール、敵AI、車 (SDLに依存しない) |
-| `App.cs` | 画面遷移と描画 |
-| `Gfx.cs` | SDL3 描画ラッパー、スプライト生成、キー入力 |
-| `Audio.cs` | 効果音とBGMの合成 |
+| `App.cs` | 画面遷移と描画 (PC版の起動とイベントループは `#if !ANDROID` の中) |
+| `Gfx.cs` | SDL3 描画ラッパー (PC版のみ) |
+| `Art.cs` | 全スプライトの組み立て (PC版/Android版で共通) |
+| `Input.cs` | キーボードとゲームパッドの入力 (PC版/Android版で共通) |
+| `Audio.cs` | 効果音とBGMの合成。音の出口だけ OS ごと (SDL / AudioTrack) |
 | `HiScores.cs` | ハイスコア上位 10 件の保存 |
 | `Achievements.cs` | 実績の定義・保存・アイコン・解除通知 |
 | `SaveData.cs` | セーブデータの保存場所と JSON の読み書き |
+
+Android版のファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `android/MainActivity.cs` | 入口。縦画面固定と、通知領域のぶんの余白 |
+| `android/GameView.cs` | 画面の割り付け (上:フィールド / 下:ステータス) と描画ループ |
+| `android/GfxAndroid.cs` | Android の Canvas で描く `Gfx` (PC版と同じ使い方ができる) |
+| `android/AppMobile.cs` | 縦画面用のステータス領域と、Android版の毎フレーム処理 |
+| `android/TouchPad.cs` | 半透明の操作パッド (絵と、指の取り扱い) |
+| `android/FontData.cs` | 8x8 のドット文字。`tools/fontdump` で SDL の内蔵フォントから作った生成物 |
+| `android/SdlShim.cs` | 共通コードが使っている SDL のキー番号だけの置き換え |
 
 ハイスコアは Windows では `%APPDATA%\ShibaJintori\hiscores.json`、Linux では `~/.config/ShibaJintori/hiscores.json` に保存されます。
 以前のバージョンの `hiscores.txt` / `achievements.txt` があれば、起動時に自動で JSON に移して txt は消します。
