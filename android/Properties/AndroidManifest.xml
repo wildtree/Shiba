@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+  <!-- 操作パッドの手ごたえ (振動) -->
+  <uses-permission android:name="android.permission.VIBRATE" />
+  <application android:label="Shiba Jintori"
+               android:icon="@mipmap/ic_launcher"
+               android:allowBackup="true"
+               android:hardwareAccelerated="true"
+               android:theme="@android:style/Theme.Material.NoActionBar" />
+</manifest>
