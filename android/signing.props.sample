@@ -1,0 +1,17 @@
+<!--
+  配布用の署名の設定のひな形。
+  このファイルを同じフォルダに signing.props という名前でコピーし、中身を自分の鍵に合わせて書き換える。
+  signing.props は .gitignore に入れてあるので、Git には入らない。
+
+  パスワードをファイルに直接書きたくない場合は、env: に続けて環境変数の名前を書ける。
+    <AndroidSigningStorePass>env:SHIBA_STORE_PASS</AndroidSigningStorePass>
+-->
+<Project>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <AndroidKeyStore>true</AndroidKeyStore>
+    <AndroidSigningKeyStore>C:\path\to\shibajintori-upload.keystore</AndroidSigningKeyStore>
+    <AndroidSigningKeyAlias>upload</AndroidSigningKeyAlias>
+    <AndroidSigningStorePass>env:SHIBA_STORE_PASS</AndroidSigningStorePass>
+    <AndroidSigningKeyPass>env:SHIBA_KEY_PASS</AndroidSigningKeyPass>
+  </PropertyGroup>
+</Project>

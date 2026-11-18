@@ -16,17 +16,21 @@
     <RootNamespace>ShibaJintori</RootNamespace>
     <AssemblyName>ShibaJintori</AssemblyName>
     <ApplicationId>jp.wildtree.android.apps.shibajintori</ApplicationId>
-    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationVersion>2</ApplicationVersion>
     <ApplicationDisplayVersion>1.0.2</ApplicationDisplayVersion>
     <Version>1.0.2</Version>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <!-- Google Play には .aab で出す。手元や実機に直接入れるぶんには .apk が楽なので、
+         Release だけ .aab にして、必要なときは -p:AndroidPackageFormat=apk で上書きする -->
+    <AndroidPackageFormat Condition="'$(Configuration)' == 'Release'">aab</AndroidPackageFormat>
+    <AndroidPackageFormat Condition="'$(Configuration)' != 'Release'">apk</AndroidPackageFormat>
     <!--
       実機 (arm64) とエミュレータ (x86_64) のどちらにも、そのまま入れられるようにしておく。
       これを書かないと Debug ビルドはそのときつないでいた機種のCPU用だけになり、
       別の機種につなぎ替えたときに「このデバイスのCPUに対応していません」で入らない。
     -->
-    <RuntimeIdentifiers>android-arm64;android-x64</RuntimeIdentifiers>
+    <RuntimeIdentifiers Condition="'$(Configuration)' == 'Release'">android-arm64;android-arm;android-x64</RuntimeIdentifiers>
+    <RuntimeIdentifiers Condition="'$(Configuration)' != 'Release'">android-arm64;android-x64</RuntimeIdentifiers>
     <!--
       高速展開 (アプリ本体とは別に .dll を送り込む仕組み) は、
       入れ直しのたびに XA0129 で失敗しやすいので使わない。
@@ -54,5 +58,12 @@
     <Compile Include="../HiScores.cs" Link="Shared/HiScores.cs" />
     <Compile Include="../SaveData.cs" Link="Shared/SaveData.cs" />
   </ItemGroup>
+
+  <!--
+    配布用の署名の設定。パスワードを含むので signing.props は Git に入れない
+    (作り方は README の「Google Play で配布する」を参照)。
+    このファイルが無いときは、これまでどおりデバッグ用の鍵で署名される。
+  -->
+  <Import Project="signing.props" Condition="Exists('signing.props')" />
 
 </Project>

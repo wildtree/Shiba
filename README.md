@@ -63,6 +63,142 @@ APK は `android/bin/Release/net10.0-android/publish/` にできます。
 
 ハイスコアと実績は端末のアプリ専用フォルダに保存されます。アプリを裏に回すと自動でポーズし、音も止まります。
 
+## Google Play で配布する
+
+### 1. 配布用の鍵を作る (最初の一度だけ)
+
+ふだんのビルドはAndroidの**デバッグ用の鍵** (`~/.android/debug.keystore`、`CN=Android Debug`) で署名されています。
+これは手元や実機で試すためのもので、Playは受け付けません。自分の鍵を作ります。
+
+```
+keytool -genkeypair -v -keystore shibajintori-upload.keystore -alias upload -keyalg RSA -keysize 4096 -validity 10000
+```
+
+名前やパスワードを聞かれるので、自分で決めて控えておきます。**この鍵ファイルとパスワードは絶対になくさないこと**
+(Play App Signing に登録していれば、万一のときは Google 経由で鍵を入れ替えられます)。
+鍵は Git に入らないよう `.gitignore` に `*.keystore` / `*.jks` を入れてあります。
+
+次に、`android/signing.props.sample` を同じフォルダに `signing.props` という名前でコピーし、鍵の場所と別名を書きます。
+パスワードはファイルに直接書かず、環境変数で渡せます (ひな形がその形になっています)。
+
+```
+$env:SHIBA_STORE_PASS = "...."
+$env:SHIBA_KEY_PASS   = "...."
+```
+
+`signing.props` が無ければ、これまでどおりデバッグ用の鍵で署名されます (手元の実機で試すぶんにはそれで十分です)。
+
+### 2. アップロードするファイルを作る
+
+```
+dotnet publish android/ShibaJintori.Android.csproj -c Release
+```
+
+`android/bin/Release/net10.0-android/publish/jp.wildtree.android.apps.shibajintori-Signed.aab` ができます。
+Playにはこの **.aab** を上げます (arm64 / arm / x86_64 が入っていて、端末ごとに必要なぶんだけ配信されます)。
+
+どの鍵で署名されたかは、次で確かめられます。
+
+```
+keytool -printcert -jarfile androidin\Release
+et10.0-android\publish\jp.wildtree.android.apps.shibajintori-Signed.aab
+```
+
+`CN=Android Debug` と出たら、まだデバッグ用の鍵のままです。
+
+実機に直接入れて確かめたいときは、同じ Release 構成で .apk も作れます。
+
+```
+dotnet publish android/ShibaJintori.Android.csproj -c Release -p:AndroidPackageFormat=apk
+```
+
+### 3. バージョン番号
+
+`android/ShibaJintori.Android.csproj` の 2 か所です。
+
+| 項目 | 意味 |
+|---|---|
+| `ApplicationVersion` | Playが見る通し番号。**アップロードのたびに1つ増やす** (同じ番号は受け付けられません) |
+| `ApplicationDisplayVersion` | 人が見る版 (`1.0.2` など)。PC版の `ShibaJintori.csproj` の `<Version>` と合わせておく |
+
+### 4. ストア掲載用の画像
+
+`packaging/play/` に入っています。どちらも `tools/iconmaker` で作り直せます。
+
+| ファイル | 用途 |
+|---|---|
+| `icon-512.png` | アプリアイコン (512x512) |
+| `feature-1024x500.png` | フィーチャーグラフィック (1024x500) |
+| `screenshots/` | スマホ用のスクリーンショット (タイトル・ステージ開始・プレイ中) |
+
+スクリーンショットは実機から撮れます (スマホ用に最低2枚必要)。
+
+```
+adb exec-out screencap -p > shot1.png
+```
+
+撮るときは通知が画面に出ていないか気をつけてください (通知が重なったまま写り込みます)。
+上端にステータスバー (時刻・電池) が入りますが、Playはこれを許容します。
+
+端末に出るアイコンはアダプティブアイコン (`android/Resources/mipmap-*`) で、背景が草の色、前景が柴犬、
+テーマアイコン用の白抜きも入っています。これも `tools/iconmaker` の生成物です。
+
+### 5. Play Console で聞かれること
+
+このゲームでの答えは次のとおりです。
+
+| 項目 | 答え |
+|---|---|
+| データ セーフティ | 収集・共有ともになし。そもそもインターネットの権限を持っていません |
+| 権限 | `VIBRATE` (操作パッドの手ごたえ) だけ |
+| 広告 | なし |
+| アプリ内課金 | なし |
+| 対象 API レベル | 36 (Playの下限を満たしています) |
+| 64bit 対応 | arm64-v8a を同梱済み |
+| プライバシーポリシー | **必須** (集めなくても求められます)。`packaging/play/privacy-policy.html` を公開したURLを貼ります → 下の「6.」 |
+
+コンテンツのレーティングは、アンケートに答えると決まります (暴力・性的表現・ギャンブルのいずれも無しです)。
+
+
+### 6. プライバシーポリシー
+
+Playは、**データを集めないアプリにもプライバシーポリシーのURLを要求します**
+(App content → プライバシー ポリシー の欄)。文面は用意してあります。
+
+| ファイル | 中身 |
+|---|---|
+| `packaging/play/privacy-policy.html` | 日本語と英語を1枚にまとめたポリシー。どこかのWebサーバに置くだけで動きます |
+
+公開する前に、次の3か所を書きかえてください。
+
+| 書きかえる場所 | 内容 |
+|---|---|
+| `CONTACT-EMAIL-HERE` (本文に2か所) | 問い合わせ先のメールアドレス |
+| `開発者: wildtree` / `Developer: wildtree` | Play Consoleの開発者名に合わせる |
+| 最終更新日 (2026年11月18日) | 内容を変えたときに直す |
+
+置き場所は自分のサイトでもGitHub Pagesでも構いませんが、**ログインなしで誰でも開けるURL**である
+ことが条件です。そのURLをPlay Consoleの欄に貼ります。
+
+書いてある「何も集めない」の裏づけは次のとおりです。
+
+- 通信するコードが1行もありません (`System.Net`・`HttpClient`・ソケットのいずれも未使用、
+  広告や解析のライブラリも入れていません)
+- Releaseのマニフェストに入る権限は `VIBRATE` だけで、`INTERNET` がありません。送ろうとしてもできません
+  - Debugビルドには高速配置のため `INTERNET` が自動で足されます。Playに出すRelease/AABには入りません
+- 保存するのは `hiscores.json`・`achievements.json`・`settings.json` の3つだけで、
+  場所は端末内のアプリ専用領域です (他のアプリからは読めず、アンインストールで消えます)
+
+ひとつだけ補足があります。マニフェストが `allowBackup="true"` なので、端末の自動バックアップが
+有効だと、このセーブデータがOSの仕組みで**利用者自身のGoogleアカウントのバックアップに含まれる**
+ことがあります。開発者が中身を見ることはできず、Playの「データ セーフティ」でも開発者による収集には
+当たりませんが、ポリシーにはその旨を書いてあります。気になる場合は `allowBackup="false"` にできます
+(そのかわり機種を変えたときにハイスコアが引き継がれません)。
+
+なお、アプリの画面の中にポリシーへのリンクを置くことも求められる場合がありますが、これは
+個人情報や機密データを扱うアプリ向けの要件です。このゲームは該当しないので省けます
+(入れておきたければタイトル画面に出せます)。
+
 ## 配布パッケージの作り方
 
 アイコンは `packaging/icons` にあります (Windows用 `.ico` と、Linux用の 16〜256 ドットの PNG)。
@@ -202,8 +338,18 @@ Android版のファイル:
 | `android/GfxAndroid.cs` | Android の Canvas で描く `Gfx` (PC版と同じ使い方ができる) |
 | `android/AppMobile.cs` | 縦画面用のステータス領域と、Android版の毎フレーム処理 |
 | `android/TouchPad.cs` | 半透明の操作パッド (絵と、指の取り扱い) |
+| `android/Haptics.cs` | 操作パッドの手ごたえ (振動) |
 | `android/FontData.cs` | 8x8 のドット文字。`tools/fontdump` で SDL の内蔵フォントから作った生成物 |
 | `android/SdlShim.cs` | 共通コードが使っている SDL のキー番号だけの置き換え |
+| `android/Resources/` | ランチャーアイコン。`tools/iconmaker` の生成物 |
+| `android/signing.props.sample` | 配布用の署名の設定のひな形 |
+
+開発用ツール (ゲーム本体のビルドには関わりません):
+
+| ファイル | 内容 |
+|---|---|
+| `tools/fontdump` | SDL の内蔵フォントから `android/FontData.cs` を作る |
+| `tools/iconmaker` | ドット絵から、Androidのアイコンとストア掲載用の画像を作る |
 
 ハイスコアは Windows では `%APPDATA%\ShibaJintori\hiscores.json`、Linux では `~/.config/ShibaJintori/hiscores.json` に保存されます。
 以前のバージョンの `hiscores.txt` / `achievements.txt` があれば、起動時に自動で JSON に移して txt は消します。
