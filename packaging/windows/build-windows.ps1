@@ -8,7 +8,7 @@ Set-Location $root
 
 [xml]$proj = Get-Content (Join-Path $root "ShibaJintori.csproj")
 $version = ($proj.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1)
-if (-not $version) { $version = "1.0.2" }
+if (-not $version) { $version = "1.0.3" }
 Write-Host "== Shiba Jintori $version =="
 
 $publish = Join-Path $root "dist\win-x64"

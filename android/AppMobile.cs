@@ -24,8 +24,23 @@ public sealed partial class App
     /// <summary>タイトル画面にいるか (ここでの SELECT / 戻るはゲームを終わらせてしまうので区別する)。</summary>
     public bool AtTitle => _scene == Scene.Title;
 
-    /// <summary>アプリが裏に回ったときは、プレイ中なら自動でポーズする。</summary>
-    public void MobileAutoPause()
+    /// <summary>
+    /// SELECT (と「戻る」) でタイトルに帰れる場面か。
+    /// 遊んでいる最中にうっかり触って記録が消えるのは悲しいので、プレイ中はポーズしてからだけ受け付ける。
+    /// ステージ開始の演出中 (READY?) も、すぐ終わるうえにポーズできないので受け付けない。
+    /// </summary>
+    public bool CanBackToTitle => _scene switch
+    {
+        Scene.Title or Scene.StageIntro => false,
+        Scene.Play => _paused,
+        _ => true,
+    };
+
+    /// <summary>
+    /// プレイ中ならポーズする。アプリが裏に回ったときと、プレイ中に「戻る」を使ったときに呼ぶ
+    /// (「戻る」でいきなりタイトルに帰らず、いったんポーズで止める)。
+    /// </summary>
+    public void MobilePause()
     {
         if (_scene == Scene.Play) _paused = true;
     }
@@ -115,7 +130,7 @@ public sealed partial class App
             Gfx.Text("PAD   : MOVE / SELECT", 12, 70, 0x9AA4C8);
             Gfx.Text("PEE   : DECIDE, PEE ON A POLE", 12, 86, 0x9AA4C8);
             Gfx.Text("START : START, PAUSE", 12, 102, 0x9AA4C8);
-            Gfx.Text("SELECT: BACK TO TITLE", 12, 118, 0x9AA4C8);
+            Gfx.Text("SELECT: BACK TO TITLE (WHEN PAUSED)", 12, 118, 0x9AA4C8);
             Gfx.Text("UP: HIGH SCORES   DOWN: ACHIEVEMENTS", 12, 142, 0x7C86AC);
             Gfx.Text("v" + AppVersion, StatusW - 8 - (AppVersion.Length + 1) * 8, 170, 0x708870);
             return;

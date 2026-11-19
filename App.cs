@@ -49,7 +49,7 @@ public sealed partial class App
     static string FormatVersion()
     {
         var v = typeof(App).Assembly.GetName().Version;
-        return v == null ? "1.0.2" : $"{v.Major}.{v.Minor}.{v.Build}";
+        return v == null ? "1.0.3" : $"{v.Major}.{v.Minor}.{v.Build}";
     }
 #if !ANDROID
     float _padKeepAlive;   // PC版のゲームパッド維持用

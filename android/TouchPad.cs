@@ -164,8 +164,10 @@ public sealed class TouchPad
             case Btn.Trigger: Pad(SDL.GamepadButton.South, down); break;
             case Btn.Start: Pad(SDL.GamepadButton.Start, down); break;
             case Btn.Select:
-                // タイトル画面の SELECT はゲームを終わらせてしまうので、そこだけ無効にする
-                if (!app.AtTitle) Pad(SDL.GamepadButton.Back, down);
+                // タイトル画面ではゲームを終わらせてしまうので無効。プレイ中は、うっかりタップで
+                // 記録が消えないようにポーズ中だけ受け付ける (App.CanBackToTitle)。
+                // 離したことは常に伝える (押したときに止めた場合でも、押しっぱなし扱いが残らないように)
+                if (!down || app.CanBackToTitle) Pad(SDL.GamepadButton.Back, down);
                 break;
             case Btn.GiveUp:
                 if (!down) break;
@@ -213,7 +215,10 @@ public sealed class TouchPad
 
         // 押されている SELECT / START
         if (_state[(int)Btn.Start]) PressPill(c, _start, "START", Cyan);
-        if (_state[(int)Btn.Select] && !app.AtTitle) PressPill(c, _select, "SELECT", Cyan);
+        if (_state[(int)Btn.Select] && app.CanBackToTitle) PressPill(c, _select, "SELECT", Cyan);
+
+        // 今は効かない SELECT は、押せないことが分かるようにくすませる
+        if (!app.CanBackToTitle) DimPill(c, _select, "SELECT");
 
         // ギブアップ: 1回目は確認待ち (点滅して SURE? になる)
         if (_armT > 0 && app.CanGiveUp)
@@ -234,6 +239,16 @@ public sealed class TouchPad
                  : Audio.Mode switch { SoundMode.All => 0x80E0A0u, SoundMode.SfxOnly => 0xD8D070u, _ => 0x8894B8u };
         if (_state[(int)Btn.Sound] || _flashT > 0) PressPill(c, _sound, label, col);
         else Label(c, label, _sound.CenterX(), _sound.CenterY(), _sound.Width(), _sound.Height() * 0.40f, col, 235);
+    }
+
+    /// <summary>今は効かないボタンを、背景に沈めて暗い字にする。</summary>
+    void DimPill(Canvas c, RectF r, string text)
+    {
+        using var p = new Paint { AntiAlias = true };
+        p.Color = Argb(0x0C0E18, 185);
+        float rad = r.Height() / 2f;
+        c.DrawRoundRect(r, rad, rad, p);
+        Label(c, text, r.CenterX(), r.CenterY(), r.Width(), r.Height() * 0.42f, 0x4A5368, 255);
     }
 
     void PressPill(Canvas c, RectF r, string text, uint tint)

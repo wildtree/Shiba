@@ -44,13 +44,14 @@ APK は `android/bin/Release/net10.0-android/publish/` にできます。
 操作パッドは、左が十字キー (指をずらしたまま向きを変えられます)、右がおしっこ (PEE) とギブアップ、
 中央が START と SELECT、左上が音の切り替えです。ボタンを押すと軽く振動します
 (端末の「タップ時の振動」をオフにしている場合は振動しません)。
+端末の「戻る」は、プレイ中はまずポーズになります (もう一度押すとタイトルへ)。
 
 | パッド | 動作 |
 |---|---|
 | 十字キー | 移動、タイトルでの色えらび、ハイスコア/実績画面、ネーム入力 |
 | PEE | 隣の電柱におしっこ、決定 (PC版のスペースキー) |
 | START | 決定、プレイ中はポーズ |
-| SELECT | タイトルへ戻る (タイトル画面では効きません。端末の「戻る」も同じ動き) |
+| SELECT | タイトルへ戻る。**プレイ中は効きません** (うっかり触って記録が消えないように、START でポーズしてからだけ受け付けます。効かない間は暗く沈んで見えます)。タイトル画面でも効きません |
 | GIVE UP | ステージのやり直し。押しまちがい防止のため、2回押しで決まります (1回目は赤く点滅して SURE? になる) |
 | 左上の音ボタン | 押すたびに BGM ON (BGMと効果音) → BGM OFF (効果音だけ) → SILENT (マナーモード: 効果音も鳴らさない) と回る。PC版の M キーと同じ |
 
@@ -119,7 +120,7 @@ dotnet publish android/ShibaJintori.Android.csproj -c Release -p:AndroidPackageF
 | 項目 | 意味 |
 |---|---|
 | `ApplicationVersion` | Playが見る通し番号。**アップロードのたびに1つ増やす** (同じ番号は受け付けられません) |
-| `ApplicationDisplayVersion` | 人が見る版 (`1.0.2` など)。PC版の `ShibaJintori.csproj` の `<Version>` と合わせておく |
+| `ApplicationDisplayVersion` | 人が見る版 (`1.0.3` など)。PC版の `ShibaJintori.csproj` の `<Version>` と合わせておく |
 
 ### 4. ストア掲載用の画像
 

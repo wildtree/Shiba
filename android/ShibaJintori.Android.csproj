@@ -16,9 +16,9 @@
     <RootNamespace>ShibaJintori</RootNamespace>
     <AssemblyName>ShibaJintori</AssemblyName>
     <ApplicationId>jp.wildtree.android.apps.shibajintori</ApplicationId>
-    <ApplicationVersion>2</ApplicationVersion>
-    <ApplicationDisplayVersion>1.0.2</ApplicationDisplayVersion>
-    <Version>1.0.2</Version>
+    <ApplicationVersion>3</ApplicationVersion>
+    <ApplicationDisplayVersion>1.0.3</ApplicationDisplayVersion>
+    <Version>1.0.3</Version>
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- Google Play には .aab で出す。手元や実機に直接入れるぶんには .apk が楽なので、
          Release だけ .aab にして、必要なときは -p:AndroidPackageFormat=apk で上書きする -->

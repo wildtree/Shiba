@@ -169,9 +169,18 @@ public sealed class GameView : SurfaceView, ISurfaceHolderCallback
         if (_backPressed)
         {
             _backPressed = false;
-            // 戻る操作は SELECT と同じ (タイトル画面では Activity 側で終了する)
-            Input.PadButton((byte)SDL.GamepadButton.Back, true);
-            Input.PadButton((byte)SDL.GamepadButton.Back, false);
+            // 戻る操作は SELECT と同じ扱い (タイトル画面では Activity 側で終了する)。
+            // ただしプレイ中は、いきなりタイトルに帰らずポーズで止める。
+            // 画面の端をうっかりなぞっただけで、遊んでいた記録が消えてしまうので
+            if (_app.CanBackToTitle)
+            {
+                Input.PadButton((byte)SDL.GamepadButton.Back, true);
+                Input.PadButton((byte)SDL.GamepadButton.Back, false);
+            }
+            else
+            {
+                _app.MobilePause();
+            }
         }
         lock (_lock)
         {
@@ -283,7 +292,7 @@ public sealed class GameView : SurfaceView, ISurfaceHolderCallback
     public void Sleep()
     {
         _sleep = true;
-        _app.MobileAutoPause();
+        _app.MobilePause();
         Input.Reset();
         lock (_lock) { _cancel = true; }
         Audio.Suspend();
