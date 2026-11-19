@@ -253,12 +253,6 @@ AI_DIST         EQU _V
 _V              EQU _V + 1
 AI_BESTD        EQU _V
 _V              EQU _V + 1
-AI_QX           EQU _V
-_V              EQU _V + 1
-AI_QY           EQU _V
-_V              EQU _V + 1
-AI_SIGN         EQU _V
-_V              EQU _V + 1
 AI_TRAVEL       EQU _V
 _V              EQU _V + 1
 AI_TMP1         EQU _V
@@ -275,10 +269,6 @@ AI_REST         EQU _V
 _V              EQU _V + 1
 AI_CROW         EQU _V
 _V              EQU _V + 1
-AI_CURD         EQU _V
-_V              EQU _V + 1
-AI_RLEN         EQU _V
-_V              EQU _V + 1
 AI_CX0          EQU _V
 _V              EQU _V + 2
 AI_CX1          EQU _V
@@ -288,8 +278,6 @@ _V              EQU _V + 2
 AI_LO           EQU _V
 _V              EQU _V + 2
 AI_HI           EQU _V
-_V              EQU _V + 2
-AI_RPTR         EQU _V
 _V              EQU _V + 2
 
 ; --- 三角形判定の作業用 -----------------------------------------------
@@ -343,24 +331,8 @@ EV_W            EQU _V
 _V              EQU _V + 1
 EV_T1           EQU _V
 _V              EQU _V + 2
-AI_DX           EQU _V
-_V              EQU _V + 1
-AI_DY           EQU _V
-_V              EQU _V + 1
-AI_PREF         EQU _V
-_V              EQU _V + 4
-AI_STUCK        EQU _V
-_V              EQU _V + 1
 AI_SCORE        EQU _V
 _V              EQU _V + 2
-AI_ADX          EQU _V
-_V              EQU _V + 1
-AI_ADY          EQU _V
-_V              EQU _V + 1
-AI_HDIR         EQU _V
-_V              EQU _V + 1
-AI_VDIR         EQU _V
-_V              EQU _V + 1
 AI_BW           EQU _V
 _V              EQU _V + 1
 AI_BH           EQU _V
@@ -563,6 +535,10 @@ _V              EQU _V + 1
 FL_AGE          EQU _V
 _V              EQU _V + 1
 VBFRESH         EQU _V
+_V              EQU _V + 1
+SNDPHASE        EQU _V              ; 音を進めるまでの帰線の残り
+_V              EQU _V + 1
+SNDPEND         EQU _V              ; まだ進めていない音のティック数
 _V              EQU _V + 1
 PT_MIN          EQU _V
 _V              EQU _V + 1

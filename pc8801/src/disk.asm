@@ -125,6 +125,7 @@ DPUTCMD:
         LD      A,FDC_ATN_SET
         OUT     (P_FDD_CTRL),A
 .wrfd:
+        CALL    VBPOLL
         IN      A,(P_FDD_C)
         AND     FDC_S_RFD
         JR      Z,.wrfd
@@ -135,6 +136,7 @@ DPUTCMD:
 DPUTDAT:
         EX      AF,AF'
 .wrfd:
+        CALL    VBPOLL
         IN      A,(P_FDD_C)
         AND     FDC_S_RFD
         JR      Z,.wrfd
@@ -155,6 +157,7 @@ DGETDAT:
         LD      A,FDC_RFD_SET
         OUT     (P_FDD_CTRL),A
 .wdav:
+        CALL    VBPOLL
         IN      A,(P_FDD_C)
         AND     FDC_S_DAV
         JR      Z,.wdav

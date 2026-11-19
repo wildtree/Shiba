@@ -556,8 +556,7 @@ MENUWAIT:
         LD      HL,(FRAMECNT)
         INC     HL
         LD      (FRAMECNT),HL
-        CALL    READKEYS
-        JP      SNDTICK
+        JP      READKEYS
 
 ; ANYPRESS - 何かのキーが新しく押されたか (NZ = 押された)
 ANYPRESS:

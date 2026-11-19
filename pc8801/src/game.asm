@@ -161,7 +161,6 @@ PLAYSTAGE:
         INC     HL
         LD      (FRAMECNT),HL
         CALL    READKEYS
-        CALL    SNDTICK
 
         ; --- T で速さの表示を切り替える ---
         LD      B,K_T_P
@@ -425,7 +424,6 @@ WAIT2SEC:
 .lp:
         PUSH    BC
         CALL    WAITVSYNC
-        CALL    SNDTICK                 ; 待っているあいだも音を進める
         CALL    ACHTOAST
         CALL    READKEYS
         CALL    ANYKEY
@@ -482,6 +480,12 @@ WAITVSYNC:
         XOR     A
         LD      (FPSTICKS),A
 .nosec:
+        ; 描画の途中で鳴らせなかったぶん (ここはかならずメイン RAM)
+        PUSH    BC
+        PUSH    DE
+        CALL    SNDPUMP
+        POP     DE
+        POP     BC
         XOR     A
         LD      (VBCOUNT),A
         RET
@@ -489,6 +493,12 @@ WAITVSYNC:
 ; ---------------------------------------------------------------------
 ; VBPOLL - 垂直帰線の立ち上がりを数える
 ;   重い処理の途中でときどき呼ぶ。レジスタは壊さない。
+;   帰線 VSYNCPERTICK 回ごとに音 (BGM と効果音) も 1 ティック進める。
+;   ゲームのループとは別に進むので、画面を描き換えているあいだや
+;   処理が重いときも曲がもたつかない。
+;   GVRAM を C000h に出している最中に音源をさわると、エミュレータによっては
+;   音がブツブツ切れるので、いったんメイン RAM に戻してから鳴らし、
+;   出していたプレーンに戻す (どのプレーンかはポート 5Ch を読むとわかる)。
 ; ---------------------------------------------------------------------
 VBPOLL:
         PUSH    AF
@@ -506,7 +516,46 @@ VBPOLL:
         JR      NZ,.out                 ; さっきも帰線中 = 立ち上がりではない
         LD      HL,VBCOUNT
         INC     (HL)
+        LD      HL,SNDPHASE
+        LD      A,(HL)
+        OR      A
+        JR      Z,.snd
+        DEC     (HL)
+        JR      .out
+.snd:
+        LD      (HL),VSYNCPERTICK-1
+        LD      HL,SNDPEND
+        INC     (HL)
 .out:
+        LD      A,(SNDPEND)
+        OR      A
+        JR      Z,.ret
+        IN      A,(P_GV0)               ; いま出している GVRAM (bit0..2)
+        AND     7
+        JR      Z,.pump                 ; メイン RAM: そのまま鳴らす
+        LD      C,P_GV0
+        CP      1
+        JR      Z,.gv
+        INC     C
+        CP      2
+        JR      Z,.gv
+        INC     C
+        CP      4
+        JR      NZ,.ret                 ; 読めない値なら WAITVSYNC にまかせる
+.gv:
+        OUT     (P_GVOFF),A
+        PUSH    DE
+        PUSH    BC
+        CALL    SNDPUMP
+        POP     BC
+        POP     DE
+        OUT     (C),A                   ; 出していたプレーンに戻す
+        JR      .ret
+.pump:
+        PUSH    DE
+        CALL    SNDPUMP
+        POP     DE
+.ret:
         POP     HL
         POP     BC
         POP     AF

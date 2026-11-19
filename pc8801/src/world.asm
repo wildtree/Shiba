@@ -742,6 +742,7 @@ EVALPASS:
         LD      A,(EV_Y0)
         LD      (EV_CY),A
 .rowlp:
+        CALL    VBPOLL
         LD      A,(EV_X0)
         LD      B,A
         LD      A,(EV_CY)

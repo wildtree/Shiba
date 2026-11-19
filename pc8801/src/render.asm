@@ -1216,6 +1216,9 @@ HUDALL:
         LD      HL,VRAM+HUD_X
         LD      B,200
 .clrow:
+        LD      A,B
+        AND     3
+        CALL    Z,VBPOLL
         PUSH    BC
         PUSH    HL
         LD      A,C

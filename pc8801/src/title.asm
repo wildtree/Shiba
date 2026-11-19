@@ -55,7 +55,6 @@ TITLESCREEN:
         INC     HL
         LD      (FRAMECNT),HL
         CALL    READKEYS
-        CALL    SNDTICK
         ; --- 左右で柴犬の色を選ぶ ---
         CALL    KEYLEFT
         JR      Z,.nl
@@ -738,6 +737,7 @@ STRLEN:
 
 ; TXTCHAR - 文字 A を (バイト列 B, 行 C) に描く
 TXTCHAR:
+        CALL    VBPOLL
         PUSH    BC
         CALL    FONTADDR
         LD      (TX_SRC),HL
@@ -753,6 +753,7 @@ TXTCHAR:
         LD      A,P_GV0
         LD      (TX_PL),A
 .plane:
+        CALL    VBPOLL
         LD      A,(TX_PL)
         LD      C,A
         XOR     A
@@ -1008,6 +1009,7 @@ FRAME:
         LD      A,P_GV0
         LD      (TX_PL),A
 .plane:
+        CALL    VBPOLL
         LD      A,(TX_PL)
         LD      C,A
         XOR     A

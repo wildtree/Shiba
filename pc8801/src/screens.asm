@@ -22,7 +22,6 @@ GAMEOVERSCREEN:
         PUSH    BC
         CALL    WAITVSYNC
         CALL    READKEYS
-        CALL    SNDTICK
         CALL    ACHTOAST
         CALL    ANYKEY
         POP     BC
@@ -63,7 +62,6 @@ DEMOPLAY:
         INC     HL
         LD      (FRAMECNT),HL
         CALL    READKEYS
-        CALL    SNDTICK
         XOR     A
         LD      (BFSUSED),A
         LD      A,0xFF

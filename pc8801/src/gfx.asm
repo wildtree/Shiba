@@ -57,20 +57,29 @@ SETPAL:
 CLS:
         XOR     A
         LD      (HUDBG),A               ; HUD の背景は HUDALL が設定しなおす
-        LD      B,3
         LD      C,P_GV0
 .plane:
         XOR     A
         OUT     (C),A
         PUSH    BC
         LD      HL,VRAM
-        LD      (HL),0
+        LD      (HL),A
         LD      DE,VRAM+1
-        LD      BC,16000-1
+        LD      BC,320-1
         LDIR
+        ; 残りは 4 行 (320 バイト) ずつ。あいだで帰線を数える (音も止めない)
+        LD      A,16000/320-1
+.chunk:
+        CALL    VBPOLL
+        LD      BC,320
+        LDIR
+        DEC     A
+        JR      NZ,.chunk
         POP     BC
         INC     C
-        DJNZ    .plane
+        LD      A,C
+        CP      P_GV0+3
+        JR      C,.plane
         XOR     A
         OUT     (P_GVOFF),A
         RET
@@ -1171,6 +1180,7 @@ BLITOPQW:
 ;   壊す: すべて
 ; ---------------------------------------------------------------------
 DRAWCHAR:
+        CALL    VBPOLL
         PUSH    BC
         CALL    FONTADDR
         LD      (GFX_SRC),HL

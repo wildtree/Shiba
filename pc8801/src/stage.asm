@@ -230,6 +230,7 @@ GENPOLES:
 .bxl:
         LD      B,60
 .tries:
+        CALL    VBPOLL
         PUSH    BC
         LD      A,(GP_BX)
         LD      B,A
@@ -583,6 +584,7 @@ FINDCELL0:
         LD      (FINDMODE),A
         LD      HL,600
 .lp:
+        CALL    VBPOLL
         PUSH    HL                      ; 残り試行回数
         LD      A,FW
         CALL    RANDMOD
