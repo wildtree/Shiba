@@ -107,6 +107,121 @@ public sealed partial class App
     }
 
     /// <summary>
+    /// PC版とまったく同じ 640x400 の画面 (フィールド + 右のパネル、タイトルなども)。
+    /// 大画面の2段レイアウトの上段に使う。
+    /// </summary>
+    public void MobileDrawWide() => Draw();
+
+    /// <summary>横向き (3列) の HUD の論理サイズ。幅は PC版のパネルと同じ。</summary>
+    public const int HudW = 160, HudLH = 76, HudRH = 182;
+
+    /// <summary>
+    /// 横向き (3列) の左の HUD (160x76)。いちばんよく見るステージと残り時間、残機。
+    /// 下に十字キーがあるので、その上に収まる大きさにしてある。
+    /// </summary>
+    public void MobileDrawHudLeft()
+    {
+        Gfx.Clear(PanelBg);
+        var w = _world;
+        if (w == null)
+        {
+            Gfx.Tint(Art.Paw, 0xFFB040);
+            Gfx.Draw(Art.Paw, 4, 4);
+            Gfx.Tint(Art.Paw, 0xFFFFFF);
+            Gfx.Text("SHIBA JINTORI", 24, 8, 0xFFB040);
+            Gfx.Text("HI-SCORE", 4, 30, 0x9AA4C8);
+            Gfx.Text($"{_hi.Top:0000000}", 4, 42, 0xFFE040, 2);
+            Gfx.Text("v" + AppVersion, 4, 66, 0x708870);
+            return;
+        }
+
+        if (w.Bonus) Gfx.Text("BONUS", 4, 4, 0xFFE040, 2);
+        else Gfx.Text($"STAGE {w.Stage:00}", 4, 4, 0xFFFFFF, 2);
+
+        int time = (int)MathF.Ceiling(w.TimeLeft);
+        uint timeCol = time <= 20 && ((int)(_clock * 4) & 1) == 0 ? 0xFF5050 : 0xFFFFFFu;
+        Gfx.Text("TIME", 4, 32, 0x9AA4C8);
+        Gfx.Text($"{time,3}", 52, 28, timeCol, 2);
+
+        Gfx.Text("LIVES", 4, 58, 0x9AA4C8);
+        if (w.Lives <= 5)
+        {
+            for (int i = 0; i < w.Lives; i++)
+                Gfx.Draw(Art.Dogs[w.Player.BreedIndex][0], 52 + i * 18, 53);
+        }
+        else
+        {
+            Gfx.Draw(Art.Dogs[w.Player.BreedIndex][0], 52, 53);
+            Gfx.Text($"x {w.Lives}", 74, 58);
+        }
+    }
+
+    /// <summary>
+    /// 横向き (3列) の右の HUD (160x182)。スコア、なわばりの割合、犬ごとの面積 (最大9匹)。
+    /// タイトル系の画面では操作の説明を出す。
+    /// </summary>
+    public void MobileDrawHudRight()
+    {
+        Gfx.Clear(PanelBg);
+        var w = _world;
+        if (w == null)
+        {
+            string[] help =
+            [
+                "PAD  : MOVE",
+                "PEE  : DECIDE / PEE",
+                "START: START, PAUSE",
+                "SELECT: TITLE",
+                "   (WHEN PAUSED)",
+                "",
+                "UP  : HIGH SCORES",
+                "DOWN: ACHIEVEMENTS",
+            ];
+            for (int i = 0; i < help.Length; i++) Gfx.Text(help[i], 4, 4 + i * 14, i < 5 ? 0x9AA4C8u : 0x7C86ACu);
+            return;
+        }
+
+        Gfx.Text("SCORE", 4, 2, 0x9AA4C8);
+        Gfx.Text($"{w.Score:0000000}", 4, 12, 0xFFFFFF, 2);
+        Gfx.Text("HI", 4, 32, 0x9AA4C8);
+        Gfx.Text($"{Math.Max(_hi.Top, w.Score):0000000}", 28, 32, 0xFFE040);
+
+        // なわばりの割合 (3/4 でステージ終了。白い目印がその位置)
+        int total = World.FW * World.FH;
+        Gfx.Text("AREA", 4, 46, 0x9AA4C8);
+        Gfx.Text($"{w.Claimed * 100 / total,3}%/75%", 52, 46, 0xFFFFFF);
+        const float BarX = 4, BarY = 58, BarW = 152;
+        Gfx.Fill(BarX, BarY, BarW, 10, 0x0C0E18);
+        float bx = BarX;
+        foreach (var d in w.Dogs)
+        {
+            float bw = d.Area * BarW / total;
+            Gfx.Fill(bx, BarY + 1, bw, 8, d.Color);
+            bx += bw;
+        }
+        Gfx.Fill(BarX + BarW * 0.75f, BarY - 2, 1, 14, 0xFFFFFF);
+
+        // 犬ごとの面積。幅が狭いので1匹1行で、性格の説明は省く
+        // (ボーナスステージでは、眠っているか起きたかを名前の代わりに出す)
+        float y = 74;
+        foreach (var d in w.Dogs)
+        {
+            if (d.IsPlayer) Gfx.Fill(2, y - 2, 156, 12, 0x2C3558);
+            Gfx.Fill(4, y, 6, 8, d.Alive ? d.Color : 0x505050u);
+            string name = d.Alive ? Breed.All[d.BreedIndex].Display : "OUT";
+            uint col = d.Alive ? 0xFFFFFFu : 0x808080u;
+            if (w.Bonus && !d.IsPlayer && d.Alive)
+            {
+                name = d.Asleep ? "ZZZ" : "AWAKE!";
+                col = d.Asleep ? 0x7C86ACu : 0xFFF060u;
+            }
+            Gfx.Text(name, 14, y, col);
+            Gfx.Text($"{d.Area,3}", 132, y, d.Color);
+            y += 12;
+        }
+    }
+
+    /// <summary>
     /// 縦画面用のステータス領域 (480x190)。
     /// 上段にステージ・残り時間・スコア・残機、中段になわばりの割合、下段に犬ごとの面積。
     /// この上に半透明の操作パッドが重なるので、数字は上のほうに置いてある。

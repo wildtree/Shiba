@@ -58,6 +58,9 @@
     <Compile Include="../HiScores.cs" Link="Shared/HiScores.cs" />
     <Compile Include="../SaveData.cs" Link="Shared/SaveData.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Xamarin.AndroidX.Window.WindowJava" Version="1.5.1.3" />
+  </ItemGroup>
 
   <!--
     配布用の署名の設定。パスワードを含むので signing.props は Git に入れない

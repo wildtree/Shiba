@@ -850,11 +850,18 @@ public sealed partial class App
             y += 21;
         }
 
+#if ANDROID
+        // Android の大画面 (2段) でもこのパネルを使う。音の切り替えはパッドにあるので書かない
+        Gfx.Text("PAD   : MOVE", X, 360, 0x7C86AC);
+        Gfx.Text("PEE   : PEE (3s)", X, 372, 0x7C86AC);
+        Gfx.Text("START : PAUSE", X, 384, 0x7C86AC);
+#else
         if (_pads.Count + _joys.Count > 0) Gfx.Text("GAMEPAD: OK", X, 334, 0x60D080);
         Gfx.Text("ARROWS: MOVE", X, 348, 0x7C86AC);
         Gfx.Text("SPACE : PEE (3s)", X, 360, 0x7C86AC);
         Gfx.Text("P:PAUSE ESC:QUIT", X, 372, 0x7C86AC);
         Gfx.Text(Audio.Mode switch { SoundMode.All => "M:SOUND ALL", SoundMode.SfxOnly => "M:SOUND SE", _ => "M:SOUND OFF" } + "  F11:FULL", X, 384, 0x7C86AC);
+#endif
     }
 
     void DrawOverlay(World w)

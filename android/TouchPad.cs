@@ -5,8 +5,9 @@ using Path = Android.Graphics.Path;   // System.IO.Path と名前がぶつかる
 namespace ShibaJintori;
 
 /// <summary>
-/// ステータス領域に重ねる半透明の操作パッド。
+/// 半透明の操作パッド。
 /// 左に十字キー、右におしっこ(トリガー)とギブアップ、中央に SELECT と START、左上に音の切り替え。
+/// 置き方は2通り: 横長の帯 (縦画面・大画面の2段、LayoutBand) と、左右の列 (横向きのスマホ、LayoutColumns)。
 /// 動かない部分 (枠や光り) は一度だけ1枚の絵に描きためておき、毎フレームは
 /// その絵と「押されているボタンの光り」だけを描く (そのほうが軽い)。
 /// 押されたボタンは、PC版のゲームパッドと同じ道 (Input.PadButton) に流し込む。
@@ -19,8 +20,10 @@ public sealed class TouchPad
     // 色 (ネオン風)
     const uint Cyan = 0x4FD2FF, Orange = 0xFFA040, Red = 0xFF5A5A, Gray = 0xA8B4D8;
 
-    readonly RectF _area = new();
-    float _q;                                   // 設計の基準寸法 (画面幅、または入る高さから決める)
+    readonly RectF _bounds = new();             // パッドの絵を描きためる範囲 (画面の座標)
+    readonly RectF _shade = new();              // 下地を少し暗くする範囲 (縦画面・2段のときだけ)
+    bool _hasShade;
+    float _q;                                   // 設計の基準寸法 (スマホの縦画面なら画面幅と同じ)
     float _dcx, _dcy, _dsize, _dthick;          // 十字キー
     float _tcx, _tcy, _trad;                    // トリガー
     readonly RectF _start = new(), _select = new(), _giveUp = new(), _sound = new();
@@ -33,46 +36,113 @@ public sealed class TouchPad
     float _armT;        // ギブアップの確認待ち (秒)
     float _flashT;      // BGM を切り替えた直後の表示
 
-    /// <summary>操作パッドを置く場所を決める (画面の大きさが変わったときに呼ぶ)。</summary>
-    public void Layout(RectF area)
+    /// <summary>
+    /// 横長の帯に置く (縦画面のステータス領域、または大画面の2段レイアウトの下段)。
+    /// 帯の幅が基準寸法より広いときは、十字キーとおしっこを左右の端へ寄せる
+    /// (大きな画面は両手で端を持つので、真ん中にまとまっていると親指が届かない)。
+    /// START / SELECT は真ん中に残す。
+    /// </summary>
+    /// <param name="qMax">基準寸法の上限 (画面の物理的な大きさから決める。タブレットで巨大にならないように)</param>
+    public void LayoutBand(RectF area, float qMax)
     {
-        _area.Set(area);
         float w = area.Width(), h = area.Height();
         // 高さが足りない端末では、入る大きさまで縮める
-        _q = MathF.Min(w, h / 0.64f);
+        _q = MathF.Max(1f, MathF.Min(MathF.Min(w, h / 0.64f), qMax));
+        float spread = MathF.Max(0f, (w - _q) / 2f);
         float left = area.Left + (w - _q) / 2f;
+        float lx = left - spread, rx = left + spread;     // 左の塊・右の塊の基準 (余りがなければ同じ)
         float bottom = area.Bottom - 0.04f * _q;
         float top = bottom - 0.60f * _q;
 
-        _dsize = 0.38f * _q;
-        _dthick = _dsize * 0.40f;
-        _dcx = left + 0.245f * _q;
-        _dcy = bottom - 0.21f * _q;
-        float half = _dsize / 2f, t2 = _dthick / 2f;
-        _arms[(int)Dir.Up].Set(_dcx - t2, _dcy - half, _dcx + t2, _dcy - t2);
-        _arms[(int)Dir.Down].Set(_dcx - t2, _dcy + t2, _dcx + t2, _dcy + half);
-        _arms[(int)Dir.Left].Set(_dcx - half, _dcy - t2, _dcx - t2, _dcy + t2);
-        _arms[(int)Dir.Right].Set(_dcx + t2, _dcy - t2, _dcx + half, _dcy + t2);
-
-        _trad = 0.125f * _q;
-        _tcx = left + 0.775f * _q;
-        _tcy = bottom - 0.225f * _q;
+        PlaceDpad(lx + 0.245f * _q, bottom - 0.21f * _q);
+        PlaceTrigger(rx + 0.775f * _q, bottom - 0.225f * _q);
 
         float pw = 0.185f * _q, ph = 0.082f * _q, mid = left + 0.53f * _q;
         _start.Set(mid - pw / 2, bottom - 0.40f * _q, mid + pw / 2, bottom - 0.40f * _q + ph);
         _select.Set(mid - pw / 2, bottom - 0.22f * _q, mid + pw / 2, bottom - 0.22f * _q + ph);
 
-        float gw = 0.30f * _q, gh = 0.095f * _q, gcx = left + 0.78f * _q;
+        float gw = 0.30f * _q, gh = 0.095f * _q, gcx = rx + 0.78f * _q;
         _giveUp.Set(gcx - gw / 2, top, gcx + gw / 2, top + gh);
         float bw = 0.23f * _q;
-        _sound.Set(left + 0.03f * _q, top, left + 0.03f * _q + bw, top + gh);
+        _sound.Set(lx + 0.03f * _q, top, lx + 0.03f * _q + bw, top + gh);
+
+        _shade.Set(area);
+        _hasShade = true;
+        Finish();
+    }
+
+    /// <summary>
+    /// 横向きのスマホ用。フィールドの左右の列に分けて置く。
+    /// 左の列: 十字キーと、その上に START / SELECT。右の列: おしっこと、その上に音の切り替えとギブアップ。
+    /// どちらも列の下に寄せるので、その上は HUD に使える (LeftTop / RightTop)。
+    /// </summary>
+    public void LayoutColumns(RectF left, RectF right, float q)
+    {
+        _q = MathF.Max(1f, q);
+        float bottom = MathF.Min(left.Bottom, right.Bottom) - 0.04f * _q;
+
+        PlaceDpad(left.CenterX(), bottom - 0.21f * _q);
+        float pw = 0.185f * _q, ph = 0.082f * _q, gap = 0.03f * _q;
+        // 十字キーの「上」を押した親指が START に触れてポーズがかかりやすいので、十分に離して上に置く
+        // (十字キーの判定の上端から、指1本ぶん以上あける)
+        float rowTop = _dcy - _dsize / 2f - 0.22f * _q - ph;
+        float lc = left.CenterX();
+        _start.Set(lc - gap / 2 - pw, rowTop, lc - gap / 2, rowTop + ph);
+        _select.Set(lc + gap / 2, rowTop, lc + gap / 2 + pw, rowTop + ph);
+
+        PlaceTrigger(right.CenterX(), bottom - 0.225f * _q);
+        float gw = 0.26f * _q, bw = 0.21f * _q, gh = 0.095f * _q;
+        float top = _tcy - _trad - 0.07f * _q - gh;
+        float x0 = right.CenterX() - (bw + gap + gw) / 2f;
+        _sound.Set(x0, top, x0 + bw, top + gh);
+        _giveUp.Set(x0 + bw + gap, top, x0 + bw + gap + gw, top + gh);
+
+        _hasShade = false;
+        Finish();
+    }
+
+    void PlaceDpad(float cx, float cy)
+    {
+        _dsize = 0.38f * _q;
+        _dthick = _dsize * 0.40f;
+        _dcx = cx;
+        _dcy = cy;
+        float half = _dsize / 2f, t2 = _dthick / 2f;
+        _arms[(int)Dir.Up].Set(_dcx - t2, _dcy - half, _dcx + t2, _dcy - t2);
+        _arms[(int)Dir.Down].Set(_dcx - t2, _dcy + t2, _dcx + t2, _dcy + half);
+        _arms[(int)Dir.Left].Set(_dcx - half, _dcy - t2, _dcx - t2, _dcy + t2);
+        _arms[(int)Dir.Right].Set(_dcx + t2, _dcy - t2, _dcx + half, _dcy + t2);
+    }
+
+    void PlaceTrigger(float cx, float cy)
+    {
+        _trad = 0.125f * _q;
+        _tcx = cx;
+        _tcy = cy;
+    }
+
+    /// <summary>描きためる絵の範囲を決めて、古い絵を捨てる。</summary>
+    void Finish()
+    {
+        // 光り (Glow) がはみ出す分だけ広めに取る
+        float m = 0.05f * _q, half = _dsize / 2f;
+        _bounds.Set(_dcx - half, _dcy - half, _dcx + half, _dcy + half);
+        _bounds.Union(_tcx - _trad, _tcy - _trad, _tcx + _trad, _tcy + _trad);
+        _bounds.Union(_start); _bounds.Union(_select); _bounds.Union(_giveUp); _bounds.Union(_sound);
+        _bounds.Inset(-m, -m);
+        if (_hasShade) _bounds.Union(_shade);
+        _bounds.Set(MathF.Floor(_bounds.Left), MathF.Floor(_bounds.Top), MathF.Ceiling(_bounds.Right), MathF.Ceiling(_bounds.Bottom));
 
         _art?.Dispose();
         _art = null;
     }
 
-    /// <summary>パッドのいちばん上 (この上はステータスの表示に使える)。</summary>
+    /// <summary>パッドのいちばん上 (帯に置いたとき。この上はステータスの表示に使える)。</summary>
     public float ContentTop => _giveUp.Top;
+
+    /// <summary>列に置いたときの、左の列・右の列のボタンのいちばん上 (この上は HUD に使える)。</summary>
+    public float LeftTop => _start.Top;
+    public float RightTop => _giveUp.Top;
 
     public void Update(float dt)
     {
@@ -192,7 +262,7 @@ public sealed class TouchPad
     public void Draw(Canvas c, App app, float clock)
     {
         _art ??= BuildArt();
-        c.DrawBitmap(_art, _area.Left, _area.Top, null);
+        c.DrawBitmap(_art, _bounds.Left, _bounds.Top, null);
 
         // 押されている十字キー
         for (int i = 0; i < 4; i++)
@@ -294,17 +364,18 @@ public sealed class TouchPad
     /// <summary>動かない部分 (枠・光り・ラベル) を1枚の絵に描きためる。</summary>
     Bitmap BuildArt()
     {
-        int w = Math.Max(1, (int)_area.Width()), h = Math.Max(1, (int)_area.Height());
+        int w = Math.Max(1, (int)_bounds.Width()), h = Math.Max(1, (int)_bounds.Height());
         var bmp = Bitmap.CreateBitmap(w, h, Bitmap.Config.Argb8888!)!;
         using var c = new Canvas(bmp);
-        c.Translate(-_area.Left, -_area.Top);   // 画面と同じ座標で描けるようにする
+        c.Translate(-_bounds.Left, -_bounds.Top);   // 画面と同じ座標で描けるようにする
 
         // 下へ向かって少し暗くなる下地 (ステータスの文字は透けて見える)
-        using (var bg = new Paint())
+        if (_hasShade)
         {
-            bg.SetShader(new LinearGradient(0, _area.Top, 0, _area.Bottom,
+            using var bg = new Paint();
+            bg.SetShader(new LinearGradient(0, _shade.Top, 0, _shade.Bottom,
                 Argb(0x0C1222, 0), Argb(0x05070E, 150), Shader.TileMode.Clamp!));
-            c.DrawRect(_area, bg);
+            c.DrawRect(_shade, bg);
         }
 
         // 十字キー

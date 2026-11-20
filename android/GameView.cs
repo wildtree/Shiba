@@ -6,17 +6,33 @@ using SDL3;
 namespace ShibaJintori;
 
 /// <summary>
-/// ゲームの表示と操作をまとめた画面。縦画面で、
-///   上: ゲームフィールド (480x400 のドット絵を横幅いっぱいに拡大)
-///   下: ステータス領域 (480x190 を横幅に合わせて拡大) + 半透明の操作パッド
-/// という作りになっている。タイトルなどの画面は PC版と同じ 640x400 を上側に出す。
+/// ゲームの表示と操作をまとめた画面。画面の形に合わせて、次の3つの並べ方から選ぶ (Arrangement)。
+///   縦  : 上にフィールド (横幅いっぱい)、下にステータスと半透明の操作パッド。スマホの縦向き
+///   2段 : 上に PC版と同じ 640x400 の画面 (フィールド + 右のパネル)、下に操作パッド。広げた折りたたみ
+///   3列 : 真ん中にフィールド (高さいっぱい)、左右に HUD と操作パッド。スマホやタブレットの横向き
+/// どれになるかは機種ではなく画面の縦横の大きさだけで決めるので、分割画面などの半端な大きさでも並ぶ。
 /// 描画は専用のスレッドで回し、小さなビットマップに描いてから画面へ拡大する。
 /// </summary>
 public sealed class GameView : SurfaceView, ISurfaceHolderCallback
 {
+    /// <summary>並べ方。</summary>
+    enum Arrangement { Portrait, Rows, Columns }
+
+    /// <summary>
+    /// 操作パッドの基準寸法の上限 (dp)。スマホの縦画面の幅くらい。
+    /// これより広い画面ではパッドを大きくせず、十字キーとおしっこを左右の端へ寄せる
+    /// (タブレットで十字キーが巨大になったり、親指の届かない真ん中に寄ったりしないように)。
+    /// </summary>
+    const float PadMaxDp = 420f;
+
+    /// <summary>縦の並びで、ステータスを最低でもフィールドの何倍の拡大率で出すか (小さく潰れないように)。</summary>
+    const float PortraitStatusRatio = 0.75f;
+
     readonly App _app = new();
     readonly TouchPad _pad = new();
     readonly Action _onQuit;
+    Arrangement _arr;
+    volatile float _dp = 2.625f;   // 1dp が何ドットか (折りたたみを開くと変わることがある)
 
     Thread? _thread;
     volatile bool _run;
@@ -31,15 +47,23 @@ public sealed class GameView : SurfaceView, ISurfaceHolderCallback
     float _clock;
 
     // 描画先 (ドット絵の論理サイズ)
-    Bitmap? _field, _status, _menu;
-    Canvas? _fieldC, _statusC, _menuC;
+    Bitmap? _field, _status, _menu, _hudL, _hudR;
+    Canvas? _fieldC, _statusC, _menuC, _hudLC, _hudRC;
+    // 画面のどこへ拡大するか
     readonly RectF _fieldDst = new(), _statusDst = new(), _menuDst = new(), _padArea = new();
+    readonly RectF _sideL = new(), _sideR = new(), _hudLDst = new(), _hudRDst = new();
     readonly Paint _blit = new() { AntiAlias = false, FilterBitmap = false, Dither = false };
     readonly Paint _panelBg = new() { Color = Color.Argb(255, 0x1B, 0x20, 0x33) };
 
     readonly object _lock = new();
     readonly List<(int Id, float X, float Y, bool Down)> _events = new();
     bool _cancel;
+
+    // 半開きの折り目 (テーブルトップ)。画面の座標で、ないときは -1。
+    // UI スレッドから SetHinge で届き (_lock で守る)、描画スレッドが並べ直すときに _useHinge* へ写す
+    int _hingeTop = -1, _hingeBottom = -1;
+    bool _hingeDirty;
+    int _useHingeTop = -1, _useHingeBottom = -1;
 
     public GameView(Context context, Action onQuit) : base(context)
     {
@@ -59,6 +83,7 @@ public sealed class GameView : SurfaceView, ISurfaceHolderCallback
 
     public void SurfaceChanged(ISurfaceHolder holder, Format format, int width, int height)
     {
+        _dp = Resources?.DisplayMetrics?.Density ?? _dp;
         _wantW = width;
         _wantH = height;
     }
@@ -70,21 +95,73 @@ public sealed class GameView : SurfaceView, ISurfaceHolderCallback
         _thread = null;
     }
 
-    /// <summary>縦画面のどこに何を置くかを決める。</summary>
+    /// <summary>画面の大きさが決まった/変わったときに、何をどこへ置くかを決め直す。</summary>
     void Relayout(int vw, int vh)
     {
+        bool reshaped = _haveW != 0;    // 最初の1回ではなく、回転・開閉・分割画面などで形が変わった
         _haveW = vw; _haveH = vh;
 
-        // 操作パッドのために下に取っておく高さ。残りをフィールドに使う
-        float minStatus = 0.52f * vw;
-        float scale = MathF.Min(vw / (float)App.FieldPixW, MathF.Max(1f, vh - minStatus) / App.FieldPixH);
+        // それぞれの並べ方で、フィールドをどこまで大きくできるかを比べて、いちばん大きくなるものにする
+        float qMax = PadMaxDp * _dp;
+        float qBand = MathF.Min(qMax, vw);            // 帯に置くパッドの基準寸法
+        float qCol = MathF.Min(qMax, vh);             // 列に置くパッドの基準寸法 (列の高さに収まるように)
+        float colW = 0.56f * qCol;                    // 列に要る幅 (いちばん幅を取るのは「音 + ギブアップ」の並び)
+        // 縦: フィールドの下に、ステータス (フィールドの 3/4 以上の大きさ) と操作パッドが縦に積まれる
+        float qPortrait = MathF.Min(qMax, vw);
+        float sPortrait = MathF.Min(vw / (float)App.FieldPixW,
+                                    (vh - 0.64f * qPortrait) / (App.FieldPixH + PortraitStatusRatio * App.StatusH));
+        float sRows = MathF.Min(vw / (float)Gfx.W, (vh - 0.64f * qBand) / Gfx.H);
+        float sColumns = MathF.Min((vw - 2 * colW) / App.FieldPixW, vh / (float)App.FieldPixH);
+
+        var arr = Arrangement.Portrait;
+        float best = sPortrait;
+        if (sRows > best * 1.02f) { arr = Arrangement.Rows; best = sRows; }
+        if (sColumns > best * 1.02f) { arr = Arrangement.Columns; best = sColumns; }
+
+        // 半開きで机に置いている (横向きの折り目がある) ときは、折り目でちょうど上下に分ける。
+        // 折り目が画面の端に寄りすぎている場合は、ふつうの並べ方のままにする
+        int ht = _useHingeTop, hb = _useHingeBottom;
+        bool tabletop = ht > vh * 0.2f && hb < vh * 0.8f && hb >= ht;
+
+        if (tabletop) arr = LayoutTabletop(vw, vh, ht, hb, qMax);
+        else
+        {
+            switch (arr)
+            {
+                case Arrangement.Rows: LayoutRows(vw, vh, MathF.Max(0.1f, sRows), qMax); break;
+                case Arrangement.Columns: LayoutColumns(vw, vh, MathF.Max(0.1f, sColumns), qCol); break;
+                default: LayoutPortrait(vw, vh, MathF.Max(0.1f, sPortrait), qMax); break;
+            }
+        }
+        _arr = arr;
+
+        if (_field == null) { _field = NewTarget(App.FieldPixW, App.FieldPixH); _fieldC = new Canvas(_field); }
+        if (_status == null) { _status = NewTarget(App.StatusW, App.StatusH); _statusC = new Canvas(_status); }
+        if (_menu == null) { _menu = NewTarget(Gfx.W, Gfx.H); _menuC = new Canvas(_menu); }
+        if (_hudL == null) { _hudL = NewTarget(App.HudW, App.HudLH); _hudLC = new Canvas(_hudL); }
+        if (_hudR == null) { _hudR = NewTarget(App.HudW, App.HudRH); _hudRC = new Canvas(_hudR); }
+
+        if (reshaped)
+        {
+            // ボタンの位置が変わったので、押されたままのボタンを放す。
+            // 持ち替えている間に犬がやられないように、遊んでいる最中ならポーズしておく
+            _pad.ReleaseAll(_app);
+            _app.MobilePause();
+            Android.Util.Log.Info("ShibaJintori", $"layout: {(tabletop ? "Tabletop/" : "")}{arr} {vw}x{vh}"
+                                                  + (tabletop ? $" hinge {ht}-{hb}" : ""));
+        }
+    }
+
+    /// <summary>縦: 上にフィールド (横幅いっぱい)、下にステータスと、それに重なる操作パッド。</summary>
+    void LayoutPortrait(int vw, int vh, float scale, float qMax)
+    {
+        // scale は、下にステータスと操作パッドの入る高さを残した大きさ (Relayout で計算済み)
         float fw = App.FieldPixW * scale, fh = App.FieldPixH * scale;
         _fieldDst.Set((vw - fw) / 2f, 0, (vw + fw) / 2f, fh);
 
         // ステータス領域 = フィールドの下の全部。操作パッドはこの範囲に重ねる
         _padArea.Set(0, fh, vw, vh);
-
-        _pad.Layout(_padArea);
+        _pad.LayoutBand(_padArea, qMax);
 
         // ステータスの中身は横幅に合わせて拡大し、フィールドと操作パッドの間に置く
         float room = MathF.Max(App.StatusH, _pad.ContentTop - fh);
@@ -98,10 +175,89 @@ public sealed class GameView : SurfaceView, ISurfaceHolderCallback
         float ms = MathF.Min(vw / (float)Gfx.W, menuH / Gfx.H);
         float mw = Gfx.W * ms, mh = Gfx.H * ms;
         _menuDst.Set((vw - mw) / 2f, (menuH - mh) / 2f, (vw + mw) / 2f, (menuH - mh) / 2f + mh);
+    }
 
-        if (_field == null) { _field = NewTarget(App.FieldPixW, App.FieldPixH); _fieldC = new Canvas(_field); }
-        if (_status == null) { _status = NewTarget(App.StatusW, App.StatusH); _statusC = new Canvas(_status); }
-        if (_menu == null) { _menu = NewTarget(Gfx.W, Gfx.H); _menuC = new Canvas(_menu); }
+    /// <summary>
+    /// 2段: 上に PC版とまったく同じ 640x400 の画面 (フィールド + 右のパネル)、下の帯に操作パッド。
+    /// タイトルなどの画面も同じ場所に出る。
+    /// </summary>
+    void LayoutRows(int vw, int vh, float s, float qMax)
+    {
+        float w = Gfx.W * s, h = Gfx.H * s;
+        _menuDst.Set((vw - w) / 2f, 0, (vw + w) / 2f, h);
+        _padArea.Set(0, h, vw, vh);
+        _pad.LayoutBand(_padArea, qMax);
+    }
+
+    /// <summary>
+    /// 3列: 真ん中にフィールド (高さいっぱい)。左の列に十字キーと START / SELECT、
+    /// 右の列におしっこと音・ギブアップを下に寄せて置き、それぞれの上に HUD を出す。
+    /// 指はフィールドに一切かからない。
+    /// </summary>
+    void LayoutColumns(int vw, int vh, float s, float q)
+    {
+        float fw = App.FieldPixW * s, fh = App.FieldPixH * s;
+        float fx = (vw - fw) / 2f, fy = (vh - fh) / 2f;
+        _fieldDst.Set(fx, fy, fx + fw, fy + fh);
+        _sideL.Set(0, 0, fx, vh);
+        _sideR.Set(fx + fw, 0, vw, vh);
+        _pad.LayoutColumns(_sideL, _sideR, q);
+
+        // HUD は左右で同じ拡大率にそろえる (字の大きさが左右で違うと落ち着かない)
+        float m = 0.03f * q;
+        float hs = MathF.Min(MathF.Min((_sideL.Width() - 2 * m) / App.HudW, (_sideR.Width() - 2 * m) / App.HudW),
+                             MathF.Min((_pad.LeftTop - 2 * m) / App.HudLH, (_pad.RightTop - 2 * m) / App.HudRH));
+        hs = MathF.Max(0.5f, hs);
+        float hw = App.HudW * hs;
+        _hudLDst.Set(_sideL.CenterX() - hw / 2f, m, _sideL.CenterX() + hw / 2f, m + App.HudLH * hs);
+        _hudRDst.Set(_sideR.CenterX() - hw / 2f, m, _sideR.CenterX() + hw / 2f, m + App.HudRH * hs);
+
+        // タイトルなどの画面 (640x400) は、フィールドの場所 (左右のボタンの間) に収める
+        float ms = MathF.Min(fw / (float)Gfx.W, vh / (float)Gfx.H);
+        float mw = Gfx.W * ms, mh = Gfx.H * ms;
+        _menuDst.Set(vw / 2f - mw / 2f, vh / 2f - mh / 2f, vw / 2f + mw / 2f, vh / 2f + mh / 2f);
+    }
+
+    /// <summary>
+    /// テーブルトップ: 半開きで机に置いたとき。折り目 (top〜bottom) でちょうど上下に分け、
+    /// 立っている上の面に画面、机に寝ている下の面に操作パッドを置く (携帯ゲーム機のような持ち方)。
+    /// 上の面が横長なら PC版の画面 (フィールド + パネル)、縦長の端末 (縦に折る小さな折りたたみ) なら
+    /// フィールドだけを上に出し、ステータスは下の面のパッドの上に出す。フィールドが大きくなるほうを選ぶ。
+    /// 戻り値は、描くときに使う並べ方 (Rows と同じ描き方か、Portrait と同じ描き方か)。
+    /// </summary>
+    Arrangement LayoutTabletop(int vw, int vh, int top, int bottom, float qMax)
+    {
+        float upper = top;                                   // 上の面の高さ
+        _padArea.Set(0, bottom, vw, vh);
+        _pad.LayoutBand(_padArea, qMax);
+
+        float sWide = MathF.Min(vw / (float)Gfx.W, upper / Gfx.H);
+        float sTall = MathF.Min(vw / (float)App.FieldPixW, upper / App.FieldPixH);
+
+        if (sTall <= sWide * 1.02f)
+        {
+            // 上の面に PC版の画面 (タイトルなども同じ場所)
+            float w = Gfx.W * sWide, h = Gfx.H * sWide;
+            _menuDst.Set((vw - w) / 2f, (upper - h) / 2f, (vw + w) / 2f, (upper + h) / 2f);
+            return Arrangement.Rows;
+        }
+
+        // 上の面にフィールドだけ
+        float fw = App.FieldPixW * sTall, fh = App.FieldPixH * sTall;
+        _fieldDst.Set((vw - fw) / 2f, (upper - fh) / 2f, (vw + fw) / 2f, (upper + fh) / 2f);
+
+        // タイトルなどの画面も上の面に
+        float ms = MathF.Min(vw / (float)Gfx.W, upper / Gfx.H);
+        float mw = Gfx.W * ms, mh = Gfx.H * ms;
+        _menuDst.Set((vw - mw) / 2f, (upper - mh) / 2f, (vw + mw) / 2f, (upper + mh) / 2f);
+
+        // ステータスは下の面の、折り目とパッドのあいだに
+        float room = MathF.Max(1f, _pad.ContentTop - bottom);
+        float ss = MathF.Min(vw / (float)App.StatusW, room / App.StatusH);
+        float sw = App.StatusW * ss, sh = App.StatusH * ss;
+        float sy = bottom + (room - sh) / 2f;
+        _statusDst.Set((vw - sw) / 2f, sy, (vw + sw) / 2f, sy + sh);
+        return Arrangement.Portrait;
     }
 
     static Bitmap NewTarget(int w, int h) => Bitmap.CreateBitmap(w, h, Bitmap.Config.Argb8888!)!;
@@ -126,7 +282,15 @@ public sealed class GameView : SurfaceView, ISurfaceHolderCallback
                 last = Java.Lang.JavaSystem.NanoTime();
                 continue;
             }
-            if (_wantW > 0 && (_wantW != _haveW || _wantH != _haveH)) Relayout(_wantW, _wantH);
+            bool hingeMoved;
+            lock (_lock)
+            {
+                hingeMoved = _hingeDirty;
+                _hingeDirty = false;
+                _useHingeTop = _hingeTop;
+                _useHingeBottom = _hingeBottom;
+            }
+            if (_wantW > 0 && (_wantW != _haveW || _wantH != _haveH || hingeMoved)) Relayout(_wantW, _wantH);
             if (_haveW == 0) { Thread.Sleep(16); continue; }
 
             long now = Java.Lang.JavaSystem.NanoTime();
@@ -213,27 +377,37 @@ public sealed class GameView : SurfaceView, ISurfaceHolderCallback
         {
             c.DrawColor(Color.Argb(255, 8, 10, 20));
 
-            if (_app.MenuScene)
+            switch (_arr)
             {
-                Gfx.Target(_menuC);
-                _app.MobileDrawMenu();
-                Gfx.Target(null);
-                if (_menu != null) c.DrawBitmap(_menu, null, _menuDst, _blit);
-            }
-            else
-            {
-                Gfx.Target(_fieldC);
-                _app.MobileDrawField();
-                Gfx.Target(null);
-                if (_field != null) c.DrawBitmap(_field, null, _fieldDst, _blit);
-            }
+                case Arrangement.Rows:
+                    // 上は PC版と同じ画面 (タイトルもゲームも)。下の帯はパネルの色で塗る
+                    c.DrawRect(_padArea, _panelBg);
+                    Gfx.Target(_menuC);
+                    _app.MobileDrawWide();
+                    Blit(c, _menu, _menuDst);
+                    break;
 
-            // ステータス領域 (タイトル中は操作の説明が出る)。背景は領域いっぱいに塗る
-            c.DrawRect(_padArea, _panelBg);
-            Gfx.Target(_statusC);
-            _app.MobileDrawStatus();
-            Gfx.Target(null);
-            if (_status != null) c.DrawBitmap(_status, null, _statusDst, _blit);
+                case Arrangement.Columns:
+                    c.DrawRect(_sideL, _panelBg);
+                    c.DrawRect(_sideR, _panelBg);
+                    DrawMain(c);
+                    Gfx.Target(_hudLC);
+                    _app.MobileDrawHudLeft();
+                    Blit(c, _hudL, _hudLDst);
+                    Gfx.Target(_hudRC);
+                    _app.MobileDrawHudRight();
+                    Blit(c, _hudR, _hudRDst);
+                    break;
+
+                default:
+                    DrawMain(c);
+                    // ステータス領域 (タイトル中は操作の説明が出る)。背景は領域いっぱいに塗る
+                    c.DrawRect(_padArea, _panelBg);
+                    Gfx.Target(_statusC);
+                    _app.MobileDrawStatus();
+                    Blit(c, _status, _statusDst);
+                    break;
+            }
 
             // いちばん上に半透明の操作パッド
             _pad.Draw(c, _app, _clock);
@@ -243,6 +417,30 @@ public sealed class GameView : SurfaceView, ISurfaceHolderCallback
             try { holder.UnlockCanvasAndPost(c); }
             catch (Exception e) { Android.Util.Log.Warn("ShibaJintori", "unlockCanvas: " + e.Message); }
         }
+    }
+
+    /// <summary>フィールド (ゲーム中) か、タイトルなどの画面のどちらか。</summary>
+    void DrawMain(Canvas c)
+    {
+        if (_app.MenuScene)
+        {
+            Gfx.Target(_menuC);
+            _app.MobileDrawMenu();
+            Blit(c, _menu, _menuDst);
+        }
+        else
+        {
+            Gfx.Target(_fieldC);
+            _app.MobileDrawField();
+            Blit(c, _field, _fieldDst);
+        }
+    }
+
+    /// <summary>描き終えた小さな絵を、ぼかさずに画面の場所へ拡大する。</summary>
+    void Blit(Canvas c, Bitmap? bmp, RectF dst)
+    {
+        Gfx.Target(null);
+        if (bmp != null) c.DrawBitmap(bmp, null, dst, _blit);
     }
 
     // ------------------------------------------------------------ 入力
@@ -278,6 +476,21 @@ public sealed class GameView : SurfaceView, ISurfaceHolderCallback
             }
         }
         return true;
+    }
+
+    /// <summary>
+    /// 半開きの折り目の位置 (この画面の座標、上端と下端)。なければ -1, -1。UI スレッドから呼ぶ。
+    /// 描画スレッドが次のフレームで並べ直す。
+    /// </summary>
+    public void SetHinge(int top, int bottom)
+    {
+        lock (_lock)
+        {
+            if (top == _hingeTop && bottom == _hingeBottom) return;
+            _hingeTop = top;
+            _hingeBottom = bottom;
+            _hingeDirty = true;
+        }
     }
 
     /// <summary>端末の「戻る」。タイトル画面ならアプリを閉じたいので false を返す。</summary>
