@@ -1,4 +1,4 @@
-using SDL3;
+﻿using SDL3;
 
 namespace ShibaJintori;
 
@@ -13,6 +13,9 @@ public static class Gfx
     public const int W = 640, H = 400;
     public static IntPtr Window, Renderer;
     static bool _fullscreen;
+
+    /// <summary>今フルスクリーンかどうか。操作説明の文言を切り替えるのに使う</summary>
+    public static bool IsFullscreen => _fullscreen;
 
     public static bool Init()
     {

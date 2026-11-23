@@ -252,7 +252,7 @@ TITLEDRAW:
         LD      A,C_GRASS2
         LD      (TXTCOL),A
         LD      HL,S_T_VER
-        LD      B,80-1-14               ; 右端にそろえる ("PC-8801 v1.0.3" は 14 文字)
+        LD      B,80-1-14               ; 右端にそろえる ("PC-8801 v1.0.4" は 14 文字)
         LD      C,T_COPY_Y
         JP      TXT
 
@@ -1153,7 +1153,7 @@ S_T_I2:         DB      "DON",0x27,"T GET SURROUNDED BY OTHER DOGS. WATCH OUT FO
 S_T_I3:         DB      "ARROWS/2468/WASD:MOVE  SPACE/Z:PEE  P:PAUSE  M:MUSIC",0
 S_T_I4:         DB      "UP: HIGH SCORES     DOWN: ACHIEVEMENTS",0
 S_T_COPY:       DB      "Copyright ",0x7F," 2026 wildtree with Claude AI",0
-S_T_VER:        DB      "PC-8801 v1.0.3",0       ; 版番号は PC版・Android版とそろえる (変えたら上の桁位置も)
+S_T_VER:        DB      "PC-8801 v1.0.4",0       ; 版番号は PC版・Android版とそろえる (変えたら上の桁位置も)
 S_T_RED:        DB      "RED",0
 S_T_BLACK:      DB      "BLACK",0
 S_T_WHITE:      DB      "WHITE",0

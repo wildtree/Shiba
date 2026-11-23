@@ -1,4 +1,4 @@
-using SDL3;
+﻿using SDL3;
 
 namespace ShibaJintori;
 
@@ -49,7 +49,7 @@ public sealed partial class App
     static string FormatVersion()
     {
         var v = typeof(App).Assembly.GetName().Version;
-        return v == null ? "1.0.3" : $"{v.Major}.{v.Minor}.{v.Build}";
+        return v == null ? "1.0.4" : $"{v.Major}.{v.Minor}.{v.Build}";
     }
 #if !ANDROID
     float _padKeepAlive;   // PC版のゲームパッド維持用
@@ -856,11 +856,13 @@ public sealed partial class App
         Gfx.Text("PEE   : PEE (3s)", X, 372, 0x7C86AC);
         Gfx.Text("START : PAUSE", X, 384, 0x7C86AC);
 #else
-        if (_pads.Count + _joys.Count > 0) Gfx.Text("GAMEPAD: OK", X, 334, 0x60D080);
+        // パネル幅は 152px (8px/字 = 19字) しかないので 1 行 16 字までに収めて 6 行に分ける
+        if (_pads.Count + _joys.Count > 0) Gfx.Text("GAMEPAD: OK", X, 336, 0x60D080);
         Gfx.Text("ARROWS: MOVE", X, 348, 0x7C86AC);
-        Gfx.Text("SPACE : PEE (3s)", X, 360, 0x7C86AC);
-        Gfx.Text("P:PAUSE ESC:QUIT", X, 372, 0x7C86AC);
-        Gfx.Text(Audio.Mode switch { SoundMode.All => "M:SOUND ALL", SoundMode.SfxOnly => "M:SOUND SE", _ => "M:SOUND OFF" } + "  F11:FULL", X, 384, 0x7C86AC);
+        Gfx.Text("SPACE : PEE (3s)", X, 358, 0x7C86AC);
+        Gfx.Text("P:PAUSE ESC:QUIT", X, 368, 0x7C86AC);
+        Gfx.Text(Audio.Mode switch { SoundMode.All => "M:SOUND ALL", SoundMode.SfxOnly => "M:SOUND SE", _ => "M:SOUND OFF" }, X, 378, 0x7C86AC);
+        Gfx.Text(Gfx.IsFullscreen ? "F11:WINDOW" : "F11:FULLSCREEN", X, 388, 0x7C86AC);
 #endif
     }
 
@@ -1005,7 +1007,7 @@ public sealed partial class App
         Gfx.TextCenter("PEE ON 3 POLES TO CLAIM THE TRIANGLE AS YOUR TERRITORY.", CX, 280, 0xE0F0E0);
         Gfx.TextCenter("DON'T GET SURROUNDED BY OTHER DOGS. WATCH OUT FOR CARS!", CX, 292, 0xE0F0E0);
         Gfx.TextCenter(Touch ? "PAD:MOVE   PEE:PEE ON A POLE   START:PAUSE"
-                             : "ARROWS/WASD:MOVE  SPACE/Z:PEE  F11:FULLSCREEN  ESC:QUIT", CX, 310, 0xA8C0A8);
+                             : "ARROWS/WASD:MOVE  SPACE/Z:PEE  " + (Gfx.IsFullscreen ? "F11:WINDOW" : "F11:FULLSCREEN") + "  ESC:QUIT", CX, 310, 0xA8C0A8);
         Gfx.TextCenter("UP: HIGH SCORES     DOWN: ACHIEVEMENTS", CX, 322, 0xFFE040);
 
         // 行進する犬たち

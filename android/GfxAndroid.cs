@@ -1,4 +1,4 @@
-using Android.Graphics;
+﻿using Android.Graphics;
 
 namespace ShibaJintori;
 
@@ -23,6 +23,9 @@ public static class Gfx
 {
     /// <summary>タイトルなどメニュー画面の論理解像度 (PC版と同じ)。</summary>
     public const int W = 640, H = 400;
+
+    /// <summary>Android は常に全画面。PC版と同じ App.cs を通すために用意している</summary>
+    public static bool IsFullscreen => true;
 
     static Canvas? _c;
     static int _clipDepth;
