@@ -4,6 +4,7 @@
 sfxgen.py - 効果音 (SSG) とジングル (FM) のデータを作る
 
     python tools/sfxgen.py            # 作ったデータを表示する
+    python tools/sfxgen.py --write    # src/sound.asm の自動生成の区間を書き換える
     python tools/sfxgen.py --check    # 音程の一覧を出す
 
 元の版 (Audio.cs) の音の指定を、PC-8801 の YM2203 用のデータに直す。
@@ -239,9 +240,79 @@ def emit_jingles():
     return '\n'.join(L)
 
 
+# =====================================================================
+# BGM (元の版の Audio.RenderTune)。1 曲を、タイトルとステージでテンポと
+# 主旋律の音色を変えて使う (sound.asm の BGMTEMPOS / BGMLEADS)。
+#   ch0 主旋律 / ch1 裏拍の和音 (3 度) / ch2 ベース (根音と 5 度)
+#   1 行 = 1 ステップ以上。長さは「ステップ数 - 1」で、BGMTICK が
+#   (長さ + 1) x テンポ ティック鳴らす。
+# =====================================================================
+
+BGM_MELODY = (
+    "e5 e5 g5 e5 c6:2 g5:2  d5 d5 g5 d5 b5:2 g5:2  c5 c5 e5 c5 a5:2 e5:2  f5 g5 a5 g5 f5:2 r:2 "
+    "e5 e5 g5 e5 c6:2 e6:2  d6 c6 b5 a5 g5:2 b5:2  a5 f5 a5 c6 b5 g5 b5 d6  c6:4 r:2 g5:2 "
+    "a5:2 c6 a5 f5:2 a5:2  g5:2 c6 g5 e5:2 g5:2  a5:2 c6 a5 f5:2 c6:2  b5 a5 g5 a5 b5:2 d6:2 "
+    "c6:2 a5 e5 a5:2 c6:2  b5:2 g5 e5 g5:2 b5:2  a5 f5 a5 c6 d6 b5 g5 b5  c6:4 r:4")
+
+# 半小節ごとのコード
+BGM_CHORDS = [
+    "C", "C", "G", "G", "Am", "Am", "F", "F", "C", "C", "G", "G", "F", "G", "C", "C",
+    "F", "F", "C", "C", "F", "F", "G", "G", "Am", "Am", "Em", "Em", "F", "G", "C", "C",
+]
+BGM_CHORD_NOTES = {   # (根音, 5 度, 裏拍で鳴らす音)
+    "G": ("g2", "d3", "b4"), "Am": ("a2", "e3", "c5"), "F": ("f2", "c3", "a4"),
+    "Em": ("e2", "b2", "g4"), "C": ("c3", "g2", "e4"),
+}
+
+
+def bgm_rows():
+    mel = BGM_MELODY.replace('r:', '-:').replace(' r ', ' - ')
+    bass, chop = [], []
+    for c in BGM_CHORDS:
+        root, fifth, third = BGM_CHORD_NOTES[c]
+        bass += ['%s:2' % root, '%s:2' % fifth]
+        chop += ['-', third, '-', third]
+    rows = merge([voice(mel), voice(' '.join(chop)), voice(' '.join(bass))], 1)
+    assert sum(r[3] + 1 for r in rows) == 128, sum(r[3] + 1 for r in rows)
+    return rows
+
+
+def emit_bgm():
+    L = ['; ==== sfxgen.py ここから (BGM) — 直接編集しないこと ====',
+         '; 元の版の BGM (16 小節 = 128 ステップでくり返す)',
+         '; 主旋律, 和音, ベース, ステップ数-1   (0xFF で最初に戻る)',
+         'BGM_D_MAIN:']
+    for r in bgm_rows():
+        L.append('        DB      %s' % ', '.join(
+            ('HOLD' if c == 0xFE else str(c)) for c in r))
+    L.append('        DB      0xFF')
+    L.append('; ==== sfxgen.py ここまで (BGM) ====')
+    return '\n'.join(L)
+
+
+def write_sound_asm(blocks):
+    """sound.asm の「sfxgen.py ここから (名前) 〜 ここまで (名前)」を置き換える。"""
+    import io
+    import os
+    import re
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src', 'sound.asm')
+    text = io.open(path, encoding='utf-8', newline='').read()
+    eol = '\r\n' if '\r\n' in text else '\n'
+    lines = text.split(eol)
+    for blk in blocks:
+        tag = re.search(r'ここから (\(.*?\))', blk.split('\n')[0]).group(1)
+        start = [i for i, l in enumerate(lines) if ('sfxgen.py ここから ' + tag) in l]
+        end = [i for i, l in enumerate(lines) if ('sfxgen.py ここまで ' + tag) in l]
+        assert len(start) == 1 and len(end) == 1, ('区間が見つからない', tag)
+        lines[start[0]:end[0] + 1] = blk.split('\n')
+    io.open(path, 'w', encoding='utf-8', newline='').write(eol.join(lines))
+    print('書き換えました:', os.path.normpath(path))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--check', action='store_true')
+    ap.add_argument('--write', action='store_true')
     args = ap.parse_args(argv)
     if args.check:
         print('SSG の音程: f = %d / TP' % (CLOCK // SSG_DIV))
@@ -251,9 +322,12 @@ def main(argv=None):
                 name, prio, sum(r[3] for r in rows),
                 ' '.join(r[4].strip() for r in rows)))
         return 0
-    print(emit_sfx_equ())
-    print(emit_sfx())
-    print(emit_jingles())
+    blocks = [emit_sfx_equ(), emit_sfx(), emit_jingles(), emit_bgm()]
+    if args.write:
+        write_sound_asm(blocks)
+        return 0
+    for b in blocks:
+        print(b)
     return 0
 
 

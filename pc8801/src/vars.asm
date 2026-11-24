@@ -219,6 +219,10 @@ BGMWAIT         EQU _V
 _V              EQU _V + 1
 BGMTUNE         EQU _V
 _V              EQU _V + 1
+BGMTEMPO        EQU _V              ; いまの曲の 1 ステップのティック数
+_V              EQU _V + 1
+LEADNOW         EQU _V              ; ch0 に積んである主旋律の音色 (BGMLEADS の値)
+_V              EQU _V + 1
 SFXCUR          EQU _V
 _V              EQU _V + 1
 SFXREQ          EQU _V

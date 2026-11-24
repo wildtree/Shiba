@@ -402,14 +402,38 @@ BGMSTART:
         LD      (BGMTUNE),A
         CP      BGM_NONE
         JP      Z,BGMSTOP
-        PUSH    AF
+        LD      C,A
         LD      A,(MUSICON)
         OR      A
-        JR      NZ,.on
-        POP     AF
-        JP      BGMSTOP
-.on:
-        POP     AF
+        JP      Z,BGMSTOP
+        ; テンポ (1 ステップのティック数)
+        LD      B,0
+        LD      HL,BGMTEMPOS
+        ADD     HL,BC
+        LD      A,(HL)
+        LD      (BGMTEMPO),A
+        ; 主旋律の音色 (変わったときだけ積みなおす)
+        LD      HL,BGMLEADS
+        ADD     HL,BC
+        LD      A,(HL)
+        LD      HL,LEADNOW
+        CP      (HL)
+        JR      Z,.lead
+        LD      (HL),A
+        PUSH    BC
+        LD      HL,FMPATCH0
+        OR      A
+        JR      Z,.ld
+        LD      HL,FMPATCH3
+.ld:
+        LD      A,0x28
+        LD      E,0
+        CALL    OPNW                    ; 主旋律をキーオフしてから積む
+        LD      C,0
+        CALL    FMLOAD
+        POP     BC
+.lead:
+        LD      A,C
         ADD     A,A
         LD      E,A
         LD      D,0
@@ -441,7 +465,8 @@ BGMSTOP:
 ; ---------------------------------------------------------------------
 ; BGMTICK - BGM を 1 ティック進める
 ;   データ: 主旋律, 和音, ベース, 長さ   (音階 0 = 休み / 0xFE = そのまま
-;           / 先頭が 0xFF なら最初に戻る)
+;           / 先頭が 0xFF なら最初に戻る / 0xFD なら止める)
+;   長さ L の行は (L + 1) x BGMTEMPO ティック鳴らす
 ; ---------------------------------------------------------------------
 BGMTICK:
         LD      HL,(BGMPTR)
@@ -483,10 +508,19 @@ BGMTICK:
         POP     BC
         INC     C
         DJNZ    .chlp
-        LD      A,(HL)
+        ; 長さ: (L + 1) x テンポ ティック鳴らす
+        LD      B,(HL)
         INC     HL
-        LD      (BGMWAIT),A
         LD      (BGMPTR),HL
+        INC     B
+        LD      A,(BGMTEMPO)
+        LD      C,A
+        XOR     A
+.mul:
+        ADD     A,C
+        DJNZ    .mul
+        DEC     A
+        LD      (BGMWAIT),A
         RET
 
 ; =====================================================================
@@ -521,128 +555,168 @@ FMPATCH2:
         DB      0x00, 0x14, 0x1F, 0x0A, 0x04, 0x3A
         DB      0x14                                 ; FB=2 ALG=4
 
+; タイトルの主旋律: 元の版の三角波に近い、やわらかいサイン波
+FMPATCH3:
+        DB      0x01, 0x7F, 0x1F, 0x00, 0x00, 0x0F   ; op1 (使わない)
+        DB      0x01, 0x7F, 0x1F, 0x00, 0x00, 0x0F   ; op3 (使わない)
+        DB      0x01, 0x7F, 0x1F, 0x00, 0x00, 0x0F   ; op2 (使わない)
+        DB      0x01, 0x0A, 0x1C, 0x06, 0x02, 0x28   ; op4 (出力)
+        DB      0x07                                 ; FB=0 ALG=7
+
 ; --- 音階の F-Number (1 オクターブ分、ブロックで上下させる) ----------
 ; クロック 3.9936MHz のとき f = fnum * 3993600 / (72 * 2^17)
 FNUMTBL:
         DW      618, 655, 694, 735, 779, 825
         DW      874, 926, 981, 1040, 1101, 1167
 
-; 音階番号: 1..12 = オクターブ2, 13..24 = オクターブ3,
-;           25..36 = オクターブ4, 37..48 = オクターブ5
-N_C2    EQU 1
-N_D2    EQU 3
-N_E2    EQU 5
-N_F2    EQU 6
-N_G2    EQU 8
-N_A2    EQU 10
-N_B2    EQU 12
-N_C3    EQU 13
-N_D3    EQU 15
-N_E3    EQU 17
-N_F3    EQU 18
-N_G3    EQU 20
-N_A3    EQU 22
-N_B3    EQU 24
-N_C4    EQU 25
-N_D4    EQU 27
-N_E4    EQU 29
-N_F4    EQU 30
-N_G4    EQU 32
-N_A4    EQU 34
-N_B4    EQU 36
-N_C5    EQU 37
-N_D5    EQU 39
-N_E5    EQU 41
-N_G5    EQU 44
+; 音階番号: 1 = C2 (65Hz) から半音ごとに 1。0 = 休み
 HOLD    EQU 0xFE
 
+; 曲ごとの データ / テンポ (1 ステップのティック数) / 主旋律の音色
+; 元の版はタイトルと夜のボーナスが「ゆっくり・三角波」、
+; ステージとボスが「速め・矩形波」の同じ曲 (Audio.RenderTune)
 BGMTBL:
-        DW      BGM_D_TITLE, BGM_D_STAGE, BGM_D_BONUS
-        DW      BGM_D_BOSS, BGM_D_CLEAR, BGM_D_OVER, BGM_D_FAIL
+        DW      BGM_D_MAIN, BGM_D_MAIN, BGM_D_MAIN
+        DW      BGM_D_MAIN, BGM_D_CLEAR, BGM_D_OVER, BGM_D_FAIL
+BGMTEMPOS:      ; 元の版 0.21 秒 / 0.16 秒 -> 6 / 5 ティック。ジングルは 1 = ティック単位
+        DB      6, 5, 6, 5, 1, 1, 1
+BGMLEADS:       ; 0 = FMPATCH0 (明るいリード) / 1 = FMPATCH3 (やわらかい)
+        DB      1, 0, 1, 0, 0, 0, 0
 
-; --- タイトル: ゆったり ---
-BGM_D_TITLE:
-        DB      N_C4, N_E3, N_C2, 8
-        DB      N_E4, HOLD, HOLD, 8
-        DB      N_G4, N_G3, N_G2, 8
-        DB      N_E4, HOLD, HOLD, 8
-        DB      N_F4, N_A3, N_F2, 8
-        DB      N_A4, HOLD, HOLD, 8
-        DB      N_G4, N_G3, N_G2, 8
-        DB      N_E4, HOLD, HOLD, 8
-        DB      N_D4, N_F3, N_D2, 8
-        DB      N_F4, HOLD, HOLD, 8
-        DB      N_A4, N_A3, N_A2, 8
-        DB      N_F4, HOLD, HOLD, 8
-        DB      N_G4, N_B3, N_G2, 8
-        DB      N_B4, HOLD, HOLD, 8
-        DB      N_C5, N_C4, N_C2, 16
-        DB      0, 0, 0, 8
+; ==== sfxgen.py ここから (BGM) — 直接編集しないこと ====
+; 元の版の BGM (16 小節 = 128 ステップでくり返す)
+; 主旋律, 和音, ベース, ステップ数-1   (0xFF で最初に戻る)
+BGM_D_MAIN:
+        DB      41, 0, 13, 0
+        DB      41, 29, HOLD, 0
+        DB      44, 0, 8, 0
+        DB      41, 29, HOLD, 0
+        DB      49, 0, 13, 0
+        DB      HOLD, 29, HOLD, 0
+        DB      44, 0, 8, 0
+        DB      HOLD, 29, HOLD, 0
+        DB      39, 0, 8, 0
+        DB      39, 36, HOLD, 0
+        DB      44, 0, 15, 0
+        DB      39, 36, HOLD, 0
+        DB      48, 0, 8, 0
+        DB      HOLD, 36, HOLD, 0
+        DB      44, 0, 15, 0
+        DB      HOLD, 36, HOLD, 0
+        DB      37, 0, 10, 0
+        DB      37, 37, HOLD, 0
+        DB      41, 0, 17, 0
+        DB      37, 37, HOLD, 0
+        DB      46, 0, 10, 0
+        DB      HOLD, 37, HOLD, 0
+        DB      41, 0, 17, 0
+        DB      HOLD, 37, HOLD, 0
+        DB      42, 0, 6, 0
+        DB      44, 34, HOLD, 0
+        DB      46, 0, 13, 0
+        DB      44, 34, HOLD, 0
+        DB      42, 0, 6, 0
+        DB      HOLD, 34, HOLD, 0
+        DB      0, 0, 13, 0
+        DB      HOLD, 34, HOLD, 0
+        DB      41, 0, 13, 0
+        DB      41, 29, HOLD, 0
+        DB      44, 0, 8, 0
+        DB      41, 29, HOLD, 0
+        DB      49, 0, 13, 0
+        DB      HOLD, 29, HOLD, 0
+        DB      53, 0, 8, 0
+        DB      HOLD, 29, HOLD, 0
+        DB      51, 0, 8, 0
+        DB      49, 36, HOLD, 0
+        DB      48, 0, 15, 0
+        DB      46, 36, HOLD, 0
+        DB      44, 0, 8, 0
+        DB      HOLD, 36, HOLD, 0
+        DB      48, 0, 15, 0
+        DB      HOLD, 36, HOLD, 0
+        DB      46, 0, 6, 0
+        DB      42, 34, HOLD, 0
+        DB      46, 0, 13, 0
+        DB      49, 34, HOLD, 0
+        DB      48, 0, 8, 0
+        DB      44, 36, HOLD, 0
+        DB      48, 0, 15, 0
+        DB      51, 36, HOLD, 0
+        DB      49, 0, 13, 0
+        DB      HOLD, 29, HOLD, 0
+        DB      HOLD, 0, 8, 0
+        DB      HOLD, 29, HOLD, 0
+        DB      0, 0, 13, 0
+        DB      HOLD, 29, HOLD, 0
+        DB      44, 0, 8, 0
+        DB      HOLD, 29, HOLD, 0
+        DB      46, 0, 6, 0
+        DB      HOLD, 34, HOLD, 0
+        DB      49, 0, 13, 0
+        DB      46, 34, HOLD, 0
+        DB      42, 0, 6, 0
+        DB      HOLD, 34, HOLD, 0
+        DB      46, 0, 13, 0
+        DB      HOLD, 34, HOLD, 0
+        DB      44, 0, 13, 0
+        DB      HOLD, 29, HOLD, 0
+        DB      49, 0, 8, 0
+        DB      44, 29, HOLD, 0
+        DB      41, 0, 13, 0
+        DB      HOLD, 29, HOLD, 0
+        DB      44, 0, 8, 0
+        DB      HOLD, 29, HOLD, 0
+        DB      46, 0, 6, 0
+        DB      HOLD, 34, HOLD, 0
+        DB      49, 0, 13, 0
+        DB      46, 34, HOLD, 0
+        DB      42, 0, 6, 0
+        DB      HOLD, 34, HOLD, 0
+        DB      49, 0, 13, 0
+        DB      HOLD, 34, HOLD, 0
+        DB      48, 0, 8, 0
+        DB      46, 36, HOLD, 0
+        DB      44, 0, 15, 0
+        DB      46, 36, HOLD, 0
+        DB      48, 0, 8, 0
+        DB      HOLD, 36, HOLD, 0
+        DB      51, 0, 15, 0
+        DB      HOLD, 36, HOLD, 0
+        DB      49, 0, 10, 0
+        DB      HOLD, 37, HOLD, 0
+        DB      46, 0, 17, 0
+        DB      41, 37, HOLD, 0
+        DB      46, 0, 10, 0
+        DB      HOLD, 37, HOLD, 0
+        DB      49, 0, 17, 0
+        DB      HOLD, 37, HOLD, 0
+        DB      48, 0, 5, 0
+        DB      HOLD, 32, HOLD, 0
+        DB      44, 0, 12, 0
+        DB      41, 32, HOLD, 0
+        DB      44, 0, 5, 0
+        DB      HOLD, 32, HOLD, 0
+        DB      48, 0, 12, 0
+        DB      HOLD, 32, HOLD, 0
+        DB      46, 0, 6, 0
+        DB      42, 34, HOLD, 0
+        DB      46, 0, 13, 0
+        DB      49, 34, HOLD, 0
+        DB      51, 0, 8, 0
+        DB      48, 36, HOLD, 0
+        DB      44, 0, 15, 0
+        DB      48, 36, HOLD, 0
+        DB      49, 0, 13, 0
+        DB      HOLD, 29, HOLD, 0
+        DB      HOLD, 0, 8, 0
+        DB      HOLD, 29, HOLD, 0
+        DB      0, 0, 13, 0
+        DB      HOLD, 29, HOLD, 0
+        DB      HOLD, 0, 8, 0
+        DB      HOLD, 29, HOLD, 0
         DB      0xFF
-
-; --- ステージ: はずむ感じ ---
-BGM_D_STAGE:
-        DB      N_C4, N_E3, N_C2, 4
-        DB      N_E4, HOLD, HOLD, 4
-        DB      N_G4, HOLD, N_G2, 4
-        DB      N_E4, HOLD, HOLD, 4
-        DB      N_F4, N_A3, N_F2, 4
-        DB      N_A4, HOLD, HOLD, 4
-        DB      N_G4, HOLD, N_C3, 4
-        DB      N_E4, HOLD, HOLD, 4
-        DB      N_D4, N_F3, N_D2, 4
-        DB      N_F4, HOLD, HOLD, 4
-        DB      N_A4, HOLD, N_A2, 4
-        DB      N_F4, HOLD, HOLD, 4
-        DB      N_G4, N_B3, N_G2, 4
-        DB      N_B4, HOLD, HOLD, 4
-        DB      N_C5, HOLD, N_C3, 8
-        DB      N_G4, HOLD, HOLD, 4
-        DB      N_E4, N_C4, N_C2, 4
-        DB      N_C5, HOLD, HOLD, 4
-        DB      N_B4, N_B3, N_G2, 4
-        DB      N_G4, HOLD, HOLD, 4
-        DB      N_A4, N_A3, N_F2, 4
-        DB      N_F4, HOLD, HOLD, 4
-        DB      N_G4, N_G3, N_G2, 4
-        DB      N_E4, HOLD, HOLD, 4
-        DB      N_F4, N_F3, N_F2, 4
-        DB      N_D4, HOLD, HOLD, 4
-        DB      N_E4, N_E3, N_E2, 4
-        DB      N_C4, HOLD, HOLD, 4
-        DB      N_D4, N_D3, N_G2, 8
-        DB      N_C4, N_C3, N_C2, 12
-        DB      0xFF
-
-; --- 夜のボーナス: 静か ---
-BGM_D_BONUS:
-        DB      N_A3, N_C3, N_A2, 12
-        DB      N_C4, HOLD, HOLD, 12
-        DB      N_E4, N_E3, N_E2, 12
-        DB      N_C4, HOLD, HOLD, 12
-        DB      N_D4, N_D3, N_D2, 12
-        DB      N_B3, HOLD, HOLD, 12
-        DB      N_A3, N_A3, N_A2, 24
-        DB      0, 0, 0, 8
-        DB      0xFF
-
-; --- ボス: 低くて急く ---
-BGM_D_BOSS:
-        DB      N_C3, N_C3, N_C2, 3
-        DB      N_C3, HOLD, HOLD, 3
-        DB      N_E3, HOLD, N_C2, 3
-        DB      N_C3, HOLD, HOLD, 3
-        DB      N_F3, N_F3, N_F2, 3
-        DB      N_C3, HOLD, HOLD, 3
-        DB      N_G3, HOLD, N_G2, 3
-        DB      N_C3, HOLD, HOLD, 3
-        DB      N_A3, N_A3, N_A2, 3
-        DB      N_G3, HOLD, HOLD, 3
-        DB      N_F3, HOLD, N_F2, 3
-        DB      N_E3, HOLD, HOLD, 3
-        DB      N_D3, N_D3, N_D2, 6
-        DB      N_C3, N_C3, N_C2, 6
-        DB      0xFF
+; ==== sfxgen.py ここまで (BGM) ====
 
 ; ==== sfxgen.py ここから (ジングル) — 直接編集しないこと ====
 ; 主旋律, 主旋律の 1 オクターブ下, ベース, 長さ-1   (0xFD で止まる)
