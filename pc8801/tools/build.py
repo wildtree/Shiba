@@ -3,7 +3,7 @@
 """
 build.py - 柴犬陣取り PC-8801 版をアセンブルして起動可能な .D88 を作る
 
-    python tools/build.py [-o SHIBA88.D88] [--run N]
+    python tools/build.py [-o SHIBA88.D88] [--keep-records [D88]] [--run N]
 
 手順
   1. tools/art.py でドット絵とフォントのデータ (src/gen_art.asm) を作る
@@ -13,7 +13,11 @@ build.py - 柴犬陣取り PC-8801 版をアセンブルして起動可能な .D
   5. 2D の D88 を組み立てる
        トラック0 セクタ1      : 起動セクタ
        トラック0 セクタ2 以降 : 本体
-       トラック78 セクタ1     : ハイスコア
+       トラック78 セクタ1     : ハイスコアと実績 (tools/records.py)
+
+--keep-records を付けると、今あるディスク (D88 を省くと -o のファイル) が
+柴犬陣取りのディスクなら、そこからハイスコアと実績を引き継ぐ。
+古い版の形の記録は今の版の形に変換して書く。
 """
 
 import argparse
@@ -29,6 +33,7 @@ sys.path.insert(0, HERE)
 
 import art      # noqa: E402
 import d88      # noqa: E402
+import records  # noqa: E402
 import z80asm   # noqa: E402
 
 SECTOR = 256
@@ -55,6 +60,32 @@ def assemble(path):
         raise SystemExit(1)
 
 
+def read_kept(path):
+    """引き継ぐ記録を読む。引き継ぐものがなければ None。"""
+    if not os.path.exists(path):
+        say("記録の引き継ぎ: %s がないので、まっさらな記録で作ります" % path)
+        return None
+    try:
+        rec = records.read_disk(d88.Disk.load(path))
+    except (records.RecordError, ValueError) as e:
+        raise SystemExit("記録を引き継げません (%s): %s\n"
+                         "上書きしてよければ --keep-records を外してください" % (path, e))
+    if rec is None:
+        say("記録の引き継ぎ: %s にはまだ記録がありません" % path)
+    return rec
+
+
+def check_record_format(syms):
+    """src/disk.asm と tools/records.py で記録の形が食い違っていないか。"""
+    want = {'HS_MAGIC2': records.CURRENT_MAGIC, 'HS_TRACK': records.HS_TRACK,
+            'HS_SECTOR': records.HS_SECTOR, 'ACH_N': records.ACH_N}
+    bad = ["%s = %02Xh (records.py は %02Xh)" % (k, syms[k], v)
+           for k, v in want.items() if syms.get(k) != v]
+    if bad:
+        raise SystemExit("記録の形が tools/records.py と合いません: " + ", ".join(bad) +
+                         "\n新しい形の読み書きを tools/records.py に足してください")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('-o', '--out', default=os.path.join(ROOT, 'SHIBA88.D88'))
@@ -62,7 +93,17 @@ def main(argv=None):
                     help='作ったあとエミュレータで N フレーム動かす')
     ap.add_argument('--png', help='--run のあと画面を PNG に書き出す')
     ap.add_argument('--no-art', action='store_true')
+    ap.add_argument('--keep-records', nargs='?', const='', metavar='D88',
+                    help='今あるディスクのハイスコアと実績を引き継ぐ '
+                         '(D88 を省くと -o のファイル)')
     args = ap.parse_args(argv)
+
+    # 引き継ぐ記録は、ファイルを書き換える前に読んでおく
+    kept = None
+    keep_from = None
+    if args.keep_records is not None:
+        keep_from = args.keep_records or args.out
+        kept = read_kept(keep_from)
 
     if not args.no_art:
         gen_art()
@@ -91,14 +132,30 @@ def main(argv=None):
     boot = bytes(bimg[0xC000:0xC100])
     used = bsyms['BOOTEND'] - 0xC000
     say("起動セクタ: %d / 256 バイト" % used)
+    try:
+        boot = records.stamp_boot(boot)
+    except records.RecordError as e:
+        raise SystemExit(str(e))
+
+    # --- 記録の形式が tools/records.py と合っているか ---
+    check_record_format(syms)
 
     # --- D88 ---
     disk = d88.blank_2d('SHIBA88')
     disk.put(0, 1, boot)
     pad = body + bytes((-len(body)) % SECTOR)
     disk.write_linear(0, 2, pad)
-    # ハイスコアのセクタ (まだ目印なし = 初期値)
-    disk.put(78, 1, bytes(256))
+    # ハイスコアと実績のセクタ
+    if kept is None:
+        disk.put(records.HS_TRACK, records.HS_SECTOR, bytes(256))   # まだ記録なし
+    else:
+        defaults = records.defaults_from_image(img, syms)
+        disk.put(records.HS_TRACK, records.HS_SECTOR, records.write(kept, defaults))
+        say("記録を引き継ぎました: %s%s" % (
+            keep_from, '' if kept.magic == records.CURRENT_MAGIC
+            else " (目印 %02Xh の形から変換)" % kept.magic))
+        for line in records.describe(records.parse(disk.get(records.HS_TRACK, records.HS_SECTOR))):
+            say("  " + line)
     disk.save(args.out)
     say("書き出しました: %s (%d バイト)" % (args.out, os.path.getsize(args.out)))
 

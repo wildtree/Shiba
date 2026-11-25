@@ -317,6 +317,11 @@ PC-8801 の N88-BASIC ROM は、ディスクから起動するとき
 ゲーム中にディスクを回すと止まって見えるので、実績はその場では書かず、
 ステージの切れ目とゲームオーバーのあとにまとめて書きます。
 
+起動セクタのうしろ (+F0h〜) には、柴犬陣取りのディスクだという目印
+`SHIBAJNT` と、ディスクの作りの版 (今は 1) を入れています。
+`build.py --keep-records` はこれを見て、記録を引き継いでよいディスクかを判断します
+(目印を入れる前のディスクは、D88 の名前 `SHIBA88` と記録の目印で見分けます)。
+
 ---
 
 ## 作り方
@@ -334,6 +339,28 @@ python tools/build.py
 3. 本体の大きさから `src/gen_size.asm` を作り、`src/boot.asm` を組む
 4. `tools/d88.py` が 2D の D88 イメージを組み立てる
 
+そのまま作ると、ハイスコアと実績は空になります。遊んでいるディスクの記録を
+残したまま作り直したいときは `--keep-records` を付けます。
+
+```bash
+python tools/build.py --keep-records              # SHIBA88.D88 の記録を残して作り直す
+python tools/build.py --keep-records OLD.D88      # 別のディスクの記録を写す
+python tools/records.py SHIBA88.D88               # ディスクの記録を表示する
+```
+
+- 今あるディスクが柴犬陣取りのディスクなら、記録を読んで新しいディスクに書きます。
+  古い版の形 (目印 `8Ah`) の記録は今の形に変換します。
+- ファイルがない、またはまだ記録がないときは、まっさらな記録で作ります。
+- 柴犬陣取りのディスクでない、または知らない形の記録のときは、
+  何も書かずに止まります (ファイルはそのまま)。
+
+記録の読み書きは `tools/records.py` にまとめてあります。どの版の形も一度
+「版に依らない形」(`Records`) に読んでから今の形で書くので、記録の形を変えるときは
+`src/disk.asm` の目印を新しい値にし、`records.py` に新しい形の読み方
+(`parse_vN`) と書き方を足します。古い形の読み方は残しておけば、そのまま変換に使えます。
+`build.py` は `src/disk.asm` の目印・場所・実績の数が `records.py` と食い違うと
+止まるので、片方だけ直したまま記録を引き継ぐことはありません。
+
 ### 検査に使うもの
 
 ```bash
@@ -345,6 +372,7 @@ python tools/speed.py                    # ステージごとの実際の速さ
 python tools/aitest.py --stage 4 --secs 60  # 敵 AI がなわばりを作れるか
 python tools/sndtest.py                  # OPN への書き込みから BGM と効果音を確認
 python tools/featuretest.py              # アイテム / 雨 / ボス犬 / 夜の面
+python tools/recordtest.py               # 記録の引き継ぎと古い形からの変換
 python tools/play.py --script "wait 320; key space 4; wait 400; shot s.png"
 python tools/bot.py --frames 4000        # キーを押して柴犬を動かす
 ```
@@ -439,7 +467,9 @@ Z80 と 640x200 に合わせて変えたところです。ルールは変えて�
 | `tools/sfxgen.py` | BGM・ジングル・効果音のデータを作る (`--write` で sound.asm に書く) |
 | `tools/icons.py` | 実績アイコン 24 個を作る |
 | `tools/icons_src.py` | 元の版から写したアイコンの材料 (絵と犬種の色) |
-| `tools/build.py` | 組み立て |
+| `tools/build.py` | 組み立て (`--keep-records` で記録を引き継ぐ) |
+| `tools/records.py` | ハイスコアと実績のセクタの読み書き・形の変換 |
+| `tools/recordtest.py` | 記録の引き継ぎの確認 |
 | `tools/play.py` | エミュレータでの動作確認 |
 | `tools/prof.py` | 1 ティックの処理時間の内訳 |
 | `tools/artpreview.py` | ドット絵の一覧を PNG に |
