@@ -156,6 +156,20 @@ public sealed class MainActivity : Activity
         _view?.Wake();
     }
 
+    // キーボードとゲームパッドは、画面のどこに焦点があっても GameView に渡す。
+    // ゲームで使わないキー (戻る・音量など) は Android にそのまま任せる
+    public override bool DispatchKeyEvent(KeyEvent? e)
+    {
+        if (e != null && _view?.HandleKey(e) == true) return true;
+        return base.DispatchKeyEvent(e);
+    }
+
+    public override bool DispatchGenericMotionEvent(MotionEvent? e)
+    {
+        if (e != null && _view?.HandleMotion(e) == true) return true;
+        return base.DispatchGenericMotionEvent(e);
+    }
+
 #pragma warning disable CA1422   // 新しい端末では予測型の「戻る」が使われるが、どちらでもここに来る
     public override void OnBackPressed()
     {

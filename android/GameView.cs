@@ -358,7 +358,139 @@ public sealed class GameView : SurfaceView, ISurfaceHolderCallback
             }
             foreach (var e in _events) _pad.Pointer(e.Id, e.X, e.Y, e.Down, _app);
             _events.Clear();
+
+            foreach (var (kind, code, down) in _keys) ApplyKey(kind, code, down);
+            _keys.Clear();
+            if (_stickDirty)
+            {
+                _stickDirty = false;
+                Input.PadAxis((byte)SDL.GamepadAxis.LeftX, _stickX);
+                Input.PadAxis((byte)SDL.GamepadAxis.LeftY, _stickY);
+                Input.JoyHat(_hat);
+            }
         }
+    }
+
+    // ------------------------------------------------------------ キーボードとゲームパッド
+
+    // Chromebook のキーボードや Bluetooth のコントローラでも遊べるように、PC版と同じ入口 (Input) に流す。
+    // キーの割り当ても PC版と同じ (矢印/WASD・スペース/Z/X・Enter・P・R・Esc・M)。
+    // 届くのは UI スレッドなので、タッチと同じく _lock の下にためて、描画スレッドが DrainTouch で流す
+    enum KeyKind { Key, Button, Joy }
+    readonly List<(KeyKind Kind, int Code, bool Down)> _keys = new();
+    // スティックと十字キー (ハット) は細かく何度も届くので、最後の値だけ覚えておく
+    short _stickX, _stickY;
+    byte _hat;
+    bool _stickDirty;
+
+    /// <summary>キーやボタンが押された/離された。ゲームで使うものなら true。UI スレッドから呼ぶ。</summary>
+    public bool HandleKey(KeyEvent e)
+    {
+        bool down = e.Action == KeyEventActions.Down;
+        if (!down && e.Action != KeyEventActions.Up) return false;
+
+        KeyKind kind;
+        int code;
+        if (PadButtonOf(e.KeyCode) is { } b) { kind = KeyKind.Button; code = (int)b; }
+        else if (e.KeyCode >= Keycode.Button1 && e.KeyCode <= Keycode.Button16)
+        {
+            // ボタンの配置がわからない汎用のパッド。PC版の汎用 USB パッドと同じ割り当てにする
+            kind = KeyKind.Joy; code = e.KeyCode - Keycode.Button1;
+        }
+        else if (ScancodeOf(e.KeyCode) is { } s) { kind = KeyKind.Key; code = (int)s; }
+        else return false;   // 戻る・音量などは Android に任せる
+
+        // 押しっぱなしのリピートは PC版と同じく無視する (押した瞬間だけ数える)
+        if (down && e.RepeatCount > 0) return true;
+        lock (_lock) _keys.Add((kind, code, down));
+        return true;
+    }
+
+    /// <summary>スティックと十字キー (ハット) の動き。ゲームパッドのものなら true。UI スレッドから呼ぶ。</summary>
+    public bool HandleMotion(MotionEvent e)
+    {
+        if ((e.Source & InputSourceType.Joystick) != InputSourceType.Joystick
+            || e.ActionMasked != MotionEventActions.Move) return false;
+        float x = e.GetAxisValue(Axis.X), y = e.GetAxisValue(Axis.Y);
+        float hx = e.GetAxisValue(Axis.HatX), hy = e.GetAxisValue(Axis.HatY);
+        // ハットは PC版 (SDL) と同じく 上=1 右=2 下=4 左=8
+        byte hat = (byte)((hy < -0.5f ? 1 : 0) | (hx > 0.5f ? 2 : 0) | (hy > 0.5f ? 4 : 0) | (hx < -0.5f ? 8 : 0));
+        lock (_lock)
+        {
+            _stickX = (short)Math.Clamp(x * 32767f, -32767f, 32767f);
+            _stickY = (short)Math.Clamp(y * 32767f, -32767f, 32767f);
+            _hat = hat;
+            _stickDirty = true;
+        }
+        // true を返すと、Android がハットから十字キーのキーを作り直さない (二重に届かない)
+        return true;
+    }
+
+    /// <summary>描画スレッドで、ためておいたキーを Input に流す。</summary>
+    void ApplyKey(KeyKind kind, int code, bool down)
+    {
+        // Esc と BACK ボタンは SELECT と同じ扱い。プレイ中は、いきなりタイトルに帰らずポーズで止める。
+        // (タイトル画面では PC版と同じくアプリを閉じる。端末の「戻る」と同じ)
+        bool back = kind switch
+        {
+            KeyKind.Key => code == (int)SDL.Scancode.Escape,
+            KeyKind.Button => code == (int)SDL.GamepadButton.Back,
+            _ => code == 8,   // 汎用パッドの9番目のボタン (Input.JoyButton で BACK になる)
+        };
+        if (back && down && !_app.AtTitle && !_app.CanBackToTitle)
+        {
+            _app.MobilePause();
+            return;
+        }
+
+        switch (kind)
+        {
+            case KeyKind.Key:
+                var s = (SDL.Scancode)code;
+                if (down) Input.KeyDown(s); else Input.KeyUp(s);
+                // M で音の切り替え (PC版と同じ。BGM → 効果音だけ → 無音)
+                if (down && s == SDL.Scancode.M) { Audio.CycleMode(); Audio.Play(Sfx.Select); }
+                break;
+            case KeyKind.Button:
+                Input.PadButton((byte)code, down);
+                break;
+            case KeyKind.Joy:
+                Input.JoyButton((byte)code, down);
+                break;
+        }
+    }
+
+    static SDL.GamepadButton? PadButtonOf(Keycode k) => k switch
+    {
+        Keycode.ButtonA => SDL.GamepadButton.South,
+        Keycode.ButtonB => SDL.GamepadButton.East,
+        Keycode.ButtonX => SDL.GamepadButton.West,
+        Keycode.ButtonY => SDL.GamepadButton.North,
+        Keycode.ButtonStart => SDL.GamepadButton.Start,
+        Keycode.ButtonSelect => SDL.GamepadButton.Back,
+        _ => null,
+    };
+
+    static SDL.Scancode? ScancodeOf(Keycode k)
+    {
+        if (k >= Keycode.A && k <= Keycode.Z) return SDL.Scancode.A + (k - Keycode.A);
+        if (k >= Keycode.Num1 && k <= Keycode.Num9) return SDL.Scancode.Alpha1 + (k - Keycode.Num1);
+        return k switch
+        {
+            Keycode.Num0 => SDL.Scancode.Alpha0,
+            // 矢印キー (ゲームパッドの十字キーがキーとして届く機種もこれ)
+            Keycode.DpadUp => SDL.Scancode.Up,
+            Keycode.DpadDown => SDL.Scancode.Down,
+            Keycode.DpadLeft => SDL.Scancode.Left,
+            Keycode.DpadRight => SDL.Scancode.Right,
+            Keycode.DpadCenter or Keycode.Enter => SDL.Scancode.Return,
+            Keycode.NumpadEnter => SDL.Scancode.KpEnter,
+            Keycode.Space => SDL.Scancode.Space,
+            Keycode.Escape => SDL.Scancode.Escape,
+            Keycode.Del => SDL.Scancode.Backspace,   // Android の Del は Backspace のこと
+            Keycode.Tab => SDL.Scancode.Tab,
+            _ => null,
+        };
     }
 
     void DrawFrame()
@@ -508,7 +640,15 @@ public sealed class GameView : SurfaceView, ISurfaceHolderCallback
         _sleep = true;
         _app.MobilePause();
         Input.Reset();
-        lock (_lock) { _cancel = true; }
+        lock (_lock)
+        {
+            _cancel = true;
+            // 裏に回っている間に離したキーは届かないので、押しっぱなしにならないよう全部忘れる
+            _keys.Clear();
+            _stickX = _stickY = 0;
+            _hat = 0;
+            _stickDirty = false;
+        }
         Audio.Suspend();
     }
 
