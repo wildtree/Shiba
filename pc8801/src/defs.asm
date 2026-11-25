@@ -125,12 +125,23 @@ WAKEPEE         EQU 3
 ;   9000-B4FF  配列
 ;   B500-BBFF  作業バッファ
 ;   BC00-BCFF  ブートローダ (起動後は未使用)
+;   BA00-BA11  夜の面: 犬ごとの zZ / 目の位置 (NIGHTPOS)
 ;   BD00-BFFF  スタック
-;   C000-FFFF  GVRAM の窓
+;   C000-FFFF  GVRAM の窓。裏のメイン RAM は GVRAM を出していないときだけ見える:
+;     C000-      night.asm (起動時に本体のうしろから写す)
+;     D800-DB1F  夜の面の暗さ (NM_MASK, 800)
+;     DC00-DF1F  夜の面の印のマス (NM_IND, 800)
+;     E000-EBB7  テキスト面 (TXTBUF, 25 行 x 120 バイト。DMA で表示)
 
 GAME_ORG        EQU 0x0100
 LOADER_ORG      EQU 0xBC00
 STACK_TOP       EQU 0xC000
+HIGH_ORG        EQU 0xC000      ; GVRAM の裏で動くコード
+NM_MASK         EQU 0xD800
+NM_IND          EQU 0xDC00
+NM_PGX          EQU 0x04        ; NM_MASK と NM_IND の上位バイトの違い
+TXTBUF          EQU 0xE000
+NIGHTPOS        EQU 0xBA00      ; NDOG * 2 (ドット行, バイト列)。FFh = なし
 
 ARR_TERR        EQU 0x9000      ; 800: なわばりの持ち主 (0xFF = なし)
 ARR_POLEAT      EQU 0x9320      ; 800: 電柱番号 (0xFF = なし)

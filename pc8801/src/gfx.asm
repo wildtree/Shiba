@@ -1037,6 +1037,47 @@ BLITOPQ2:
         OUT     (P_GVOFF),A
         RET
 
+; ---------------------------------------------------------------------
+; ROADWHITE - 道路の白線だけを今の絵に重ねる (なわばりの上の道路)
+;   入力: HL = 白線のマスク (8 行 x 2 バイト), DE = VRAM (左上)
+;   白線のビットを 3 プレーンとも 1 にする = 色 7。
+;   壊す: すべて
+; ---------------------------------------------------------------------
+ROADWHITE:
+        LD      (OPQ_VA),DE
+        LD      (OPQ_SRC),HL
+        LD      A,P_GV0
+.plane:
+        LD      (OPQ_PL),A
+        LD      C,A
+        XOR     A
+        OUT     (C),A
+        LD      HL,(OPQ_VA)
+        LD      DE,(OPQ_SRC)
+        LD      BC,8*256+VSTRIDE-1      ; B = 行数, C = 次の行までの差
+.row:
+        LD      A,(DE)
+        OR      (HL)
+        LD      (HL),A
+        INC     DE
+        INC     HL
+        LD      A,(DE)
+        OR      (HL)
+        LD      (HL),A
+        INC     DE
+        PUSH    BC
+        LD      B,0
+        ADD     HL,BC
+        POP     BC
+        DJNZ    .row
+        LD      A,(OPQ_PL)
+        INC     A
+        CP      P_GV0+3
+        JR      C,.plane
+        XOR     A
+        OUT     (P_GVOFF),A
+        RET
+
 BLITOPQ4:
         CALL    VBPOLL
         LD      (OPQ_VA),DE

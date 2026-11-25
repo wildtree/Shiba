@@ -256,28 +256,30 @@ SPRITES['scroll'] = [
     '................',
 ]
 
-# 眠っている犬の上に出す zZ
+# 眠っている犬の上に出す zZ と、起きている犬の光る目。
+# 夜のボーナス面でしか使わない。暗がり (テキスト面) の中でも見えるよう、
+# このマスはマスクを抜いてあるので、まわりを輪郭の暗い色 (= マスクと同じ色)
+# で塗りつぶした不透明な絵にしてある。
 SPRITES['zzz'] = [
-    '..WWWW....WW....',
-    '.....W....W.....',
-    '....W....W......',
-    '..WWWW...WW.....',
-    '................',
-    '................',
-    '................',
-    '................',
+    'KKWWWWKKKKWWKKKK',
+    'KKKKKWKKKKWKKKKK',
+    'KKKKWKKKKWKKKKKK',
+    'KKWWWWKKKWWKKKKK',
+    'KKKKKKKKKKKKKKKK',
+    'KKKKKKKKKKKKKKKK',
+    'KKKKKKKKKKKKKKKK',
+    'KKKKKKKKKKKKKKKK',
 ]
 
-# 起きている犬の光る目
 SPRITES['awake'] = [
-    '...W.......W....',
-    '................',
-    '................',
-    '................',
-    '................',
-    '................',
-    '................',
-    '................',
+    'KKKYYKKKKKKYYKKK',
+    'KKKKKKKKKKKKKKKK',
+    'KKKKKKKKKKKKKKKK',
+    'KKKKKKKKKKKKKKKK',
+    'KKKKKKKKKKKKKKKK',
+    'KKKKKKKKKKKKKKKK',
+    'KKKKKKKKKKKKKKKK',
+    'KKKKKKKKKKKKKKKK',
 ]
 
 # 残機表示の小さい顔。元の版の正面の頭 (16x10) から 8 行を取ったもの。

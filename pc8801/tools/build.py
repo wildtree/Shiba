@@ -71,7 +71,10 @@ def main(argv=None):
     img, written, syms = assemble(os.path.join(SRC, 'game.asm'))
     org = syms['GAME_ENTRY']
     end = syms['GAME_END']
-    body = bytes(img[org:end])
+    # GVRAM の裏で動く部分 (C000h-) は本体のすぐうしろに続けて置く
+    hs, he = syms['HIGH_START'], syms['HIGH_END']
+    body = bytes(img[org:end]) + bytes(img[hs:he])
+    say("裏の部分: %04Xh - %04Xh  %d バイト (読み込み先 %04Xh)" % (hs, he, he - hs, end))
     nsec = (len(body) + SECTOR - 1) // SECTOR
     say("本体: %04Xh - %04Xh  %d バイト (%d セクタ)" % (org, end, len(body), nsec))
     if nsec > 16 * 2 * 38:

@@ -418,6 +418,14 @@ class PC88:
         self.bgcolor = 0
         self.vram_sel = -1       # -1: メイン RAM, 0..2: GVRAM プレーン
         self.text_win = 0x80
+        # テキスト面 (DMAC チャネル 2 と CRTC の設定だけ覚えて、描くときに読む)
+        self.dma_addr2 = 0xF3C8
+        self.dma_ff = 0
+        self.crtc_cmd = None
+        self.crtc_params = []
+        self.crtc_p5 = 0x13
+        # GVRAM のプレーンを出しているのに C000h-EFFFh のコードが動いた回数
+        self.hi_conflict = 0
         self.ext_rom_bank = 0xFF
         self.alu_latch = [0, 0, 0]
 
@@ -486,6 +494,8 @@ class PC88:
                 return self.ram[(base + (a - 0x8000)) & 0xFFFF]
             return self.ram[a]
         if self.vram_sel >= 0:
+            if 0xC000 <= self.cpu.pc < 0xF000:
+                self.hi_conflict += 1
             return self.gvram[self.vram_sel][a - 0xC000]
         if a >= 0xF000 and not self.tmode:
             return self.hi_tvram[a - 0xF000]
@@ -612,8 +622,15 @@ class PC88:
             if self.opn_log is not None:
                 self.opn_log.append((self.cpu.cycles, self.opn_addr, v))
             return
-        if port in (0x50, 0x51):
-            return                       # CRTC は受けるだけ
+        if port == 0x51:
+            self.crtc_cmd = v
+            self.crtc_params = []
+            return
+        if port == 0x50:
+            self.crtc_params.append(v)
+            if self.crtc_cmd == 0x00 and len(self.crtc_params) == 5:
+                self.crtc_p5 = v
+            return
         if port == 0x52:
             self.bgcolor = v >> 5
             return
@@ -648,8 +665,20 @@ class PC88:
         if port == 0x5F:
             self.vram_sel = -1
             return
-        if 0x60 <= port <= 0x68:
-            return                       # DMAC は受けるだけ
+        if port == 0x68:
+            self.dma_ff = 0
+            return
+        if port == 0x64:
+            if self.dma_ff == 0:
+                self.dma_addr2 = (self.dma_addr2 & 0xFF00) | v
+            else:
+                self.dma_addr2 = (self.dma_addr2 & 0x00FF) | (v << 8)
+            self.dma_ff ^= 1
+            return
+        if 0x60 <= port <= 0x67:
+            if port != 0x64:
+                self.dma_ff ^= 1
+            return                       # ほかの DMAC レジスタは受けるだけ
         if port == 0x70:
             self.text_win = v
             return
@@ -764,12 +793,68 @@ class PC88:
                              | (4 if b2 & m else 0))
                         row[x0 + bit] = c
             rows.append(row)
+        if not text_hidden:
+            self.text_overlay(rows)
         return rows, text_hidden
+
+    def dma_read(self, a):
+        a &= 0xFFFF
+        if a >= 0xF000:
+            return self.hi_tvram[a - 0xF000]
+        return self.ram[a]
+
+    def text_overlay(self, rows):
+        """テキスト面を重ねる。セミグラフィックだけ描く (文字のフォントは持たない)。
+
+        色 0 のドットは 8 番 (黒) として返す。透明ではない。
+        """
+        p5 = self.crtc_p5
+        mode = (p5 >> 5) & 7
+        nattr = 0 if (mode & 1) else min((p5 & 0x1F) + 1, 20)
+        color_ok = bool(mode & 2) and not (self.port30 & 0x02)
+        w40 = not (self.port30 & 0x01)
+        stride = 80 + nattr * 2
+        attr = 0xE0
+        for r in range(25):
+            base = self.dma_addr2 + r * stride
+            codes = [self.dma_read(base + i) for i in range(80)]
+            pairs = [(self.dma_read(base + 80 + i * 2),
+                      self.dma_read(base + 81 + i * 2)) for i in range(nattr)]
+            at = {}
+            for pos, val in pairs:
+                at.setdefault(pos & 0x7F, []).append(val)
+            ncol = 40 if w40 else 80
+            cw = 16 if w40 else 8
+            for c in range(ncol):
+                cx = c * 2 if w40 else c
+                for val in at.get(cx, ()):
+                    if val & 0x08:
+                        attr = (attr & 0x0F) | (val & 0xF0)
+                code = codes[cx]
+                if not (attr & 0x10) or code == 0:
+                    continue
+                col = (attr >> 5) if color_ok else 7
+                pix = col if col else 8
+                half = cw // 2
+                for l in range(8):
+                    br = l // 2
+                    left = code & (1 << br)
+                    right = code & (1 << (br + 4))
+                    if not (left or right):
+                        continue
+                    row = rows[r * 8 + l]
+                    x0 = c * cw
+                    if left:
+                        for x in range(x0, x0 + half):
+                            row[x] = pix
+                    if right:
+                        for x in range(x0 + half, x0 + cw):
+                            row[x] = pix
 
     def save_png(self, path, scale=1):
         rows, _ = self.render()
         pal = [tuple(min(255, c * 36) for c in self.palram[i])
-               for i in range(8)]
+               for i in range(8)] + [(0, 0, 0)]
         w, h = 640, 200 * 2        # 縦 2 倍にして実機の見た目に近づける
         raw = bytearray()
         for y in range(200):

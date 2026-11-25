@@ -115,7 +115,10 @@ public sealed class GameView : SurfaceView, ISurfaceHolderCallback
 
         var arr = Arrangement.Portrait;
         float best = sPortrait;
-        if (sRows > best * 1.02f) { arr = Arrangement.Rows; best = sRows; }
+        // 縦と2段でフィールドの大きさがほぼ同じなら、2段にする。縦の並びが高さで頭打ちのときは
+        // フィールドの左右が空いてしまうが、2段なら横幅いっぱいに収まり、PC版のパネルも出せる
+        // (背の低い外側画面や、縦に持った正方形に近い画面)
+        if (sRows >= best * 0.98f) { arr = Arrangement.Rows; best = sRows; }
         if (sColumns > best * 1.02f) { arr = Arrangement.Columns; best = sColumns; }
 
         // 半開きで机に置いている (横向きの折り目がある) ときは、折り目でちょうど上下に分ける。
@@ -375,21 +378,19 @@ public sealed class GameView : SurfaceView, ISurfaceHolderCallback
 
         try
         {
-            c.DrawColor(Color.Argb(255, 8, 10, 20));
+            // 地はパネルの色。どの並べ方でも、余った所が黒い帯に見えないように
+            c.DrawPaint(_panelBg);
 
             switch (_arr)
             {
                 case Arrangement.Rows:
-                    // 上は PC版と同じ画面 (タイトルもゲームも)。下の帯はパネルの色で塗る
-                    c.DrawRect(_padArea, _panelBg);
+                    // 上は PC版と同じ画面 (タイトルもゲームも)。まわりと下の帯はパネルの色のまま
                     Gfx.Target(_menuC);
                     _app.MobileDrawWide();
                     Blit(c, _menu, _menuDst);
                     break;
 
                 case Arrangement.Columns:
-                    c.DrawRect(_sideL, _panelBg);
-                    c.DrawRect(_sideR, _panelBg);
                     DrawMain(c);
                     Gfx.Target(_hudLC);
                     _app.MobileDrawHudLeft();

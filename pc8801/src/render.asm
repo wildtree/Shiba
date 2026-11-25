@@ -246,6 +246,9 @@ DRAWCELL:
         LD      A,(HL)
         CP      0xFF
         JR      Z,.grass
+        CALL    .terr
+        JR      .overlay
+.terr:
         ; なわばり: 持ち主の模様で塗って、隣と違うところに縁をつける
         LD      (TERROWNER),A
         CALL    DOGSTYLE                ; DE = 模様
@@ -254,13 +257,10 @@ DRAWCELL:
         POP     DE
         CALL    FILLCELL
         CALL    TERREDGE                ; A = 縁のビット
-        OR      A
-        JR      Z,.overlay
         PUSH    AF
         CALL    CELLVA
         POP     AF
-        CALL    EDGECELL
-        JR      .overlay
+        JP      EDGECELL                ; 縁がなければ何もせずに戻る
 .grass:
         ; 草: マスの位置で 4 種類の模様を使い分ける
         LD      A,(RND_CY)
@@ -303,10 +303,28 @@ DRAWCELL:
         LD      H,(HL)
         LD      L,A
         PUSH    HL                      ; 道路の絵
+        ; 道路の上のなわばりは、なわばりの模様に白線だけを重ねる
+        LD      A,(RND_CX)
+        LD      B,A
+        LD      A,(RND_CY)
+        LD      C,A
+        LD      DE,ARR_TERR
+        CALL    CELLPTR
+        LD      A,(HL)
+        CP      0xFF
+        JR      NZ,.roadterr
         CALL    CELLVA                  ; HL = VRAM
         EX      DE,HL                   ; DE = VRAM
         POP     HL                      ; HL = 道路の絵
         JP      BLITOPQ2                ; 道路のマスには電柱もアイテムも置かれない
+.roadterr:
+        CALL    .terr
+        CALL    CELLVA
+        EX      DE,HL
+        POP     HL
+        LD      BC,16
+        ADD     HL,BC                   ; プレーン 1 = 白線のところだけ 1
+        JP      ROADWHITE
 
 .overlay:
         ; --- 電柱 ---
@@ -939,10 +957,20 @@ DRAWONEDOG:
 .aw:
         LD      A,(TMPB0)
         SUB     8
-        RET     C
+        JR      NC,.tagy
+        ADD     A,16                    ; 一番上の行では犬の下に出す
+.tagy:
         LD      D,A
         LD      A,(TMPB1)
         LD      E,A
+        ; 印の位置を night.asm に知らせる (暗がりのマスを抜く)
+        LD      A,(TMPB2)
+        ADD     A,A
+        LD      L,A
+        LD      H,NIGHTPOS >> 8
+        LD      (HL),D
+        INC     L
+        LD      (HL),E
         LD      A,C_WHITE
         JP      DRAWSPR_C
 

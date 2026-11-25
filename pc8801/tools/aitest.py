@@ -59,7 +59,7 @@ def main(argv=None):
         sec = g('SECLEFT')
         if start - sec >= args.secs or g('FINISHED') or g('GAMEOVER'):
             break
-        if m.cpu.pc < 0x100 or m.cpu.pc >= sym['GAME_END']:
+        if m.cpu.pc < 0x100 or m.cpu.pc >= sym['GAME_END'] and not (sym['HIGH_START'] <= m.cpu.pc < sym['HIGH_END']):
             print("暴走 PC=%04X" % m.cpu.pc, flush=True)
             break
         if sec != last and (start - sec) % 10 == 0:

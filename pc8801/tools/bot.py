@@ -164,7 +164,7 @@ def main(argv=None):
     peed = 0
     last_report = 0
     while frames < args.frames:
-        if g.m.cpu.pc < 0x100 or g.m.cpu.pc >= sym['GAME_END']:
+        if g.m.cpu.pc < 0x100 or g.m.cpu.pc >= sym['GAME_END'] and not (sym['HIGH_START'] <= g.m.cpu.pc < sym['HIGH_END']):
             print("暴走 PC=%04X (frame %d)" % (g.m.cpu.pc, frames))
             break
         if g.b('FINISHED') or g.b('GAMEOVER'):

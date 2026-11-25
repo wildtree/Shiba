@@ -17,6 +17,11 @@ GAME_ENTRY:
         OUT     (P_INTMASK),A
         OUT     (P_INTLV),A
         IM      1
+        ; GVRAM の裏で動く部分を本体のうしろから C000h へ写す
+        LD      HL,GAME_END
+        LD      DE,HIGH_START
+        LD      BC,HIGH_END-HIGH_START
+        LDIR
         ; 変数の置き場をすべて 0 にしておく
         LD      HL,VARS
         LD      (HL),0
@@ -32,6 +37,7 @@ GAME_ENTRY:
         LD      (MIXER),A
 
         CALL    GFX_INIT
+        CALL    TEXTINIT
         CALL    SNDINIT
 
         ; ハイスコアの初期値
@@ -79,6 +85,7 @@ NEWGAME:
         LD      A,(SCORE+2)
         LD      (SCORE0+2),A
         CALL    PLAYSTAGE
+        CALL    NIGHTOFF
         CALL    ACHSAVEIF               ; 実績が増えていたらステージの切れ目で書く
         LD      A,(GAMEOVER)
         OR      A
@@ -144,15 +151,13 @@ PLAYSTAGE:
         LD      (MISSES),A
         LD      (ACHTT),A
         CALL    PALNORMAL
-        LD      A,(BONUSMODE)
-        OR      A
-        CALL    NZ,PALNIGHT             ; 夜のボーナス面は暗く
         CALL    STAGEINIT
         CALL    CLS
         CALL    DIRTYRESET
         CALL    DIRTYALL
         CALL    FLUSHDIRTY
         CALL    HUDALL
+        CALL    NIGHTSTART              ; 夜のボーナス面はテキスト面で暗がりを出す
         CALL    STAGEANNOUNCE
         CALL    STAGEBGM
 .loop:
@@ -245,6 +250,7 @@ PLAYSTAGE:
         CALL    FLUSHDIRTY
         CALL    DRAWCARS
         CALL    DRAWDOGS
+        CALL    NIGHTTICK
         LD      A,(DBGON)
         OR      A
         CALL    NZ,HUDFPS
@@ -568,7 +574,6 @@ VBPOLL:
         INCLUDE "tick.asm"
         INCLUDE "events.asm"
         INCLUDE "ai.asm"
-        INCLUDE "path.asm"
         INCLUDE "input.asm"
         INCLUDE "sound.asm"
         INCLUDE "screens.asm"
@@ -580,3 +585,15 @@ VBPOLL:
 
 GAME_END:
         ASSERT  GAME_END < 0x9000, "コードとデータが配列の領域にかかります"
+
+; ---------------------------------------------------------------------
+; ここから GVRAM の裏 (C000h-) で動く部分。ディスクでは本体のすぐうしろに
+; 続けて置いてあり、GAME_ENTRY が写す。
+; ---------------------------------------------------------------------
+        ORG     HIGH_ORG
+HIGH_START:
+        INCLUDE "night.asm"
+        INCLUDE "path.asm"                ; 道さがし (GVRAM を触らない計算だけ)
+HIGH_END:
+        ASSERT  HIGH_END <= NM_MASK, "裏の部分が夜の面の配列にかかります"
+        ASSERT  GAME_END + HIGH_END - HIGH_START <= VARS, "読み込むと変数の領域にかかります"

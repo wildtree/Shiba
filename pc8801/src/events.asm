@@ -415,18 +415,6 @@ PALNORMAL:
         OUT     (P_PAL0+5),A
         RET
 
-; 夜のボーナス面: 草を月あかりの暗い青緑にする
-PALNIGHT:
-        LD      A,0x01                  ; R=0 B=1
-        OUT     (P_PAL0),A
-        LD      A,0x42                  ; G=2
-        OUT     (P_PAL0),A
-        LD      A,0x08                  ; R=1 B=0
-        OUT     (P_PAL0+5),A
-        LD      A,0x41                  ; G=1
-        OUT     (P_PAL0+5),A
-        RET
-
 ; タイトル: 草を暗くした背景 (元の版は草の上に 0x102018 を半分重ねている)
 ;   色 0 = 暗い草 / 色 5 = 少し明るい緑 (草の点・肉球・控えめな文字)
 PALTITLE:
