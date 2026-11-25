@@ -281,6 +281,17 @@ PLAYSTAGE:
         OR      A
         JR      Z,.loop
 .fin:
+        ; 1 ティックに描くマスには上限があるので、最後に取ったなわばりが
+        ; 塗りかけのまま止まらないよう、残りを全部描いてから先へ進む
+.flush:
+        CALL    FLUSHDIRTY
+        LD      HL,(DIRTYTAIL)
+        LD      DE,ARR_DIRTYQ
+        OR      A
+        SBC     HL,DE
+        JR      NZ,.flush
+        CALL    DRAWCARS                ; 描き直したマスの上の車と犬を戻す
+        CALL    DRAWDOGS
         CALL    BGMSTOP
         CALL    HUDVALUES
         ; 結果の表示
