@@ -378,7 +378,11 @@ COMPLETEPEE:
 .setowner:
         LD      A,(IY+D_TERRID)
         LD      (IX+PL_OWNER),A
+        JR      .mark
 .locked:
+        ; なわばりの頂点になった電柱は共有できるが、印は 1 匹分だけ
+        CALL    STEALSHARED
+.mark:
         LD      A,(TMPB0)
         CALL    CHAINADD
         ; 電柱のマスを描き直す
@@ -389,6 +393,65 @@ COMPLETEPEE:
         CP      3
         RET     C
         JP      TRYTERRITORY
+
+; ---------------------------------------------------------------------
+; STEALSHARED - なわばりに取り込まれた電柱 (TMPB0) に印をつけたとき、
+;   ほかの犬の chain からその電柱を外す (上書き)。IX は残す
+;   入力: IY = 印をつけた犬
+; ---------------------------------------------------------------------
+STEALSHARED:
+        PUSH    IX
+        LD      A,(IY+D_TERRID)
+        LD      (SSID),A
+        XOR     A
+        LD      (SSHIT),A
+        PUSH    IY
+        LD      A,(NDOGS)
+        LD      B,A
+        LD      C,0
+.lp:
+        PUSH    BC
+        LD      A,C
+        CALL    DOGADDR
+        PUSH    HL
+        POP     IY
+        LD      A,(IY+D_TERRID)
+        LD      HL,SSID
+        CP      (HL)
+        JR      Z,.next
+        LD      A,(TMPB0)
+        LD      C,A
+        CALL    CHAINHAS
+        OR      A
+        JR      Z,.next
+        LD      A,(TMPB0)
+        LD      C,A
+        CALL    CHAINREM
+        LD      A,1
+        LD      (SSHIT),A
+        LD      A,(IY+D_FLAGS)
+        AND     DF_PLAYER
+        JR      Z,.next
+        ; 柴犬の印が取られた
+        LD      HL,S_LOST
+        LD      A,C_RED
+        CALL    HUDMSG
+        LD      A,20
+        LD      (MSGTIMER),A
+        LD      A,SFX_OVERWRITE
+        CALL    SFXPLAY
+.next:
+        POP     BC
+        INC     C
+        DJNZ    .lp
+        POP     IY
+        POP     IX
+        LD      A,(SSHIT)
+        OR      A
+        RET     Z
+        CALL    ACHPL                   ; 柴犬がほかの犬の印を上書きした
+        DB      ACH_OVERWRITE
+        RET
 
 ; ---------------------------------------------------------------------
 ; TRYTERRITORY - chain の 3 本でなわばりができるか試す
@@ -710,7 +773,9 @@ LOCKPOLES:
         RET
 
 ; ---------------------------------------------------------------------
-; REMOVEFROMOTHERS - 電柱 C を、IY 以外の犬の chain から外す
+; REMOVEFROMOTHERS - 電柱 C を、IY 以外の犬の chain から外す。
+;   その電柱におしっこ中の犬がいれば、おしっこも取り消す (終わったら印が
+;   つく、ではおかしい)。すでに取り込まれた電柱へのおしっこ(共有)はよい
 ; ---------------------------------------------------------------------
 REMOVEFROMOTHERS:
         LD      A,C
@@ -729,6 +794,17 @@ REMOVEFROMOTHERS:
         LD      HL,EVAL_ID
         CP      (HL)
         JR      Z,.next
+        ; おしっこ中の電柱だった (chain にはまだ入っていない)
+        LD      A,(IY+D_PEEPOLE)
+        LD      HL,RFOPOLE
+        CP      (HL)
+        JR      NZ,.chain
+        XOR     A
+        LD      (IY+D_PEET),A
+        LD      (IY+D_PEET+1),A
+        LD      (IY+D_PEEPOLE),0xFF
+        JR      .lost
+.chain:
         LD      A,(RFOPOLE)
         LD      C,A
         CALL    CHAINHAS
@@ -737,6 +813,7 @@ REMOVEFROMOTHERS:
         LD      A,(RFOPOLE)
         LD      C,A
         CALL    CHAINREM
+.lost:
         LD      A,(IY+D_FLAGS)
         AND     DF_PLAYER
         JR      Z,.next

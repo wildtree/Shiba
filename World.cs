@@ -416,6 +416,18 @@ public sealed class World
             }
             pole.Owner = d.Id;
         }
+        else
+        {
+            // なわばりの頂点になった電柱は共有できるが、印は 1 匹分だけ。
+            // ほかの犬がつけていた印は消える (上書き)
+            foreach (var o in Dogs)
+            {
+                if (o == d || !o.Chain.Remove(idx)) continue;
+                if (d.IsPlayer || o.IsPlayer) Audio.Play(Sfx.Overwrite);
+                if (d.IsPlayer) Ach("OVERWRITE");
+                if (o.IsPlayer) AddPopup(pole.X, pole.Y, "LOST!", 0xFF6060);
+            }
+        }
         d.Chain.Remove(idx);
         d.Chain.Add(idx);
         if (d.IsPlayer) Audio.Play(Sfx.Mark);
@@ -455,9 +467,16 @@ public sealed class World
             var p = Poles[i];
             if (Terr[p.X, p.Y] != d.Id || (p.Locked && p.Owner == d.Id)) continue;
             p.Locked = true; p.Owner = d.Id;
-            // なわばりに取り込まれた電柱についていた、ほかの犬の印は解除する
+            // なわばりに取り込まれた電柱についていた、ほかの犬の印は解除する。
+            // おしっこ中の印も同じ扱いにする (3 秒の間に取り込まれたのに、終わったら印がつくのはおかしい)。
+            // すでに取り込まれている電柱におしっこをする(電柱の共有)のはかまわない
             foreach (var o in Dogs)
-                if (o != d && o.Chain.Remove(i) && o.IsPlayer) AddPopup(p.X, p.Y, "LOST!", 0xFF6060);
+            {
+                if (o == d) continue;
+                bool lost = o.Chain.Remove(i);
+                if (o.PeePole == i) { o.PeeT = 0; o.PeePole = -1; lost = true; }
+                if (lost && o.IsPlayer) AddPopup(p.X, p.Y, "LOST!", 0xFF6060);
+            }
         }
 
         if (d.IsPlayer)
@@ -519,7 +538,8 @@ public sealed class World
 
     /// <summary>
     /// 電柱 a,b,c の三角形で新しく取れるマス数を返す。作れない場合は -1。
-    /// 作れない条件: 一直線 / 新しく取れるマスがない / 三角形の内側に他の犬のなわばりが少しでもある。
+    /// 作れない条件: 一直線 / 新しく取れるマスがない / 三角形の内側に他の犬のなわばりが少しでもある
+    /// (細い三角形がなわばりのマスのあいだをすり抜ける場合も含む。CrossesOther を参照)。
     /// (辺の上や頂点の電柱で接しているだけなら可。隣り合うなわばりや、電柱の共有はできる)
     /// ボス犬だけは例外で、内側にあるほかの犬のなわばりも「取れるマス」に数える(奪い取る)。
     /// 呼び出し後 _inTri に三角形内のマスが入っている。
@@ -554,7 +574,58 @@ public sealed class World
                 }
             }
         if (n == 0 || other) return -1;
+        if (!steal && CrossesOther(id, A, B, C, area2, minX, maxX, minY, maxY)) return -1;
         return n;
+    }
+
+    static readonly int[] CrossDX = [1, 0, 1, -1], CrossDY = [0, 1, 1, 1];
+
+    /// <summary>
+    /// 細い三角形が、ほかの犬のなわばりのマスの中心と中心のあいだをすり抜けていないか。
+    /// マスの中心だけで見ると、高さが 1 マスもない三角形はなわばりを素通りできてしまう。
+    /// そこで、同じ犬のなわばりで隣り合う(斜めも含む) 2 マスの中心を結ぶ線分が、
+    /// 三角形の内側(辺は含まない)を通っていたら「横切っている」とみなす。
+    /// 辺や頂点で接しているだけ(共有)なら、その線分は辺の外側か辺の上にしかないので引っかからない。
+    /// </summary>
+    bool CrossesOther(int id, Pole A, Pole B, Pole C, int area2, int minX, int maxX, int minY, int maxY)
+    {
+        int s = area2 > 0 ? 1 : -1;
+        for (int y = minY; y <= maxY; y++)
+            for (int x = minX; x <= maxX; x++)
+            {
+                int t = Terr[x, y];
+                if (t < 0 || t == id) continue;
+                for (int k = 0; k < 4; k++)
+                {
+                    int qx = x + CrossDX[k], qy = y + CrossDY[k];
+                    // 箱の外へ出る線分は、三角形の内側には届かない
+                    if (qx < minX || qx > maxX || qy > maxY || Terr[qx, qy] != t) continue;
+                    if (SegmentInside(A, B, C, s, x, y, qx, qy)) return true;
+                }
+            }
+        return false;
+    }
+
+    /// <summary>線分 (px,py)-(qx,qy) が三角形の内側(辺は含まない)を通るか。分離軸で調べる。</summary>
+    static bool SegmentInside(Pole A, Pole B, Pole C, int s, int px, int py, int qx, int qy)
+    {
+        // 三角形の辺: 両端とも辺の外側か辺の上なら、内側には入らない (s を掛けると内側が正)
+        if (OutOrOn(A, B, s, px, py, qx, qy) || OutOrOn(B, C, s, px, py, qx, qy) || OutOrOn(C, A, s, px, py, qx, qy))
+            return false;
+        // 線分の向き: 3 つの頂点がすべて線分の片側(線上を含む)にあれば、内側は線分に触れない
+        int ux = qx - px, uy = qy - py;
+        int ca = ux * (A.Y - py) - uy * (A.X - px);
+        int cb = ux * (B.Y - py) - uy * (B.X - px);
+        int cc = ux * (C.Y - py) - uy * (C.X - px);
+        if ((ca >= 0 && cb >= 0 && cc >= 0) || (ca <= 0 && cb <= 0 && cc <= 0)) return false;
+        return true;
+    }
+
+    static bool OutOrOn(Pole P, Pole Q, int s, int px, int py, int qx, int qy)
+    {
+        int ep = s * ((Q.X - P.X) * (py - P.Y) - (Q.Y - P.Y) * (px - P.X));
+        int eq = s * ((Q.X - P.X) * (qy - P.Y) - (Q.Y - P.Y) * (qx - P.X));
+        return ep <= 0 && eq <= 0;
     }
 
     void LoseLife()

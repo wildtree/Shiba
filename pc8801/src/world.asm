@@ -472,7 +472,8 @@ CHAINDROP:
 ; =====================================================================
 ; 入力: TRI_AX..TRI_CY, EVAL_ID, EVAL_STEAL, EVAL_COLLECT
 ; 出力: EV_N = 新しく取れるマス数 (0 なら作れない)
-;       ARR_INTRI: bit0 = 三角形の内側, bit2 = 辺または頂点の上
+;       ARR_INTRI: bit0 = 三角形の内側, bit2 = 辺または頂点の上, bit3 = 今回取るマス
+;                  bit4..6 = 辺 0..2 の外側か辺の上 (EVALCROSS が使う)
 ;       EVAL_COLLECT != 0 なら ARR_FILLQ に取れるマスの添字を積む
 ; =====================================================================
 
@@ -544,7 +545,16 @@ EVALUATE:
         LD      A,1
         CALL    EVALPASS
         LD      A,2
-        JP      EVALPASS
+        CALL    EVALPASS
+        ; 作れそうなら、細い三角形がほかのなわばりをすり抜けていないかも見る
+        LD      HL,(EV_N)
+        LD      A,H
+        OR      L
+        RET     Z
+        LD      A,(EVAL_STEAL)
+        OR      A
+        RET     NZ                      ; ボス犬はなわばりごと奪うので見ない
+        JP      EVALCROSS
 
 ; ---------------------------------------------------------------------
 ; TRIAREA - TRI_* から辺のベクトルと面積の 2 倍 (HL) を求める
@@ -774,10 +784,10 @@ EVALPASS:
         LD      (IX+0),0
         JR      .p0adv
 .p0neg:
-        LD      (IX+0),1
+        LD      (IX+0),0x11             ; 負 + 辺 0 の外側
         JR      .p0adv
 .p0zero:
-        LD      (IX+0),4
+        LD      (IX+0),0x14             ; 0 + 辺 0 の上
 .p0adv:
         ADD     HL,DE
         INC     IX
@@ -794,12 +804,12 @@ EVALPASS:
         JR      .p1adv
 .p1neg:
         LD      A,(IX+0)
-        OR      1
+        OR      0x21                    ; 負 + 辺 1 の外側
         LD      (IX+0),A
         JR      .p1adv
 .p1zero:
         LD      A,(IX+0)
-        OR      4
+        OR      0x24                    ; 0 + 辺 1 の上
         LD      (IX+0),A
 .p1adv:
         ADD     HL,DE
@@ -809,6 +819,20 @@ EVALPASS:
 
         ; --- 2 回目: 符号を合わせて数える ---
 .p2:
+        ; 辺 0,1 のビットを残し、辺 2 (いまの辺) が外側か辺の上なら bit6
+        LD      A,(IX+0)
+        AND     0x30
+        BIT     7,H
+        JR      NZ,.p2le
+        LD      C,A
+        LD      A,H
+        OR      L
+        LD      A,C
+        JR      NZ,.p2gt
+.p2le:
+        OR      0x40
+.p2gt:
+        LD      (EV_EB),A
         BIT     7,H
         JP      NZ,.p2out
         LD      A,(IX+0)
@@ -850,7 +874,9 @@ EVALPASS:
         LD      A,1
         LD      (EVAL_OTHER),A
 .p2skip:
-        LD      (IX+0),1
+        LD      A,(EV_EB)
+        OR      1
+        LD      (IX+0),A
         POP     DE
         POP     HL
         JR      .p2adv
@@ -858,7 +884,9 @@ EVALPASS:
         LD      HL,(EV_N)
         INC     HL
         LD      (EV_N),HL
-        LD      (IX+0),9
+        LD      A,(EV_EB)
+        OR      9
+        LD      (IX+0),A
         LD      A,(EVAL_COLLECT)
         OR      A
         JR      Z,.p2done
@@ -887,7 +915,8 @@ EVALPASS:
         POP     HL
         JR      .p2adv
 .p2out:
-        LD      (IX+0),0
+        LD      A,(EV_EB)
+        LD      (IX+0),A
 .p2adv:
         LD      A,(EV_CX)
         INC     A
@@ -917,6 +946,242 @@ EVALPASS:
         RET     Z
         LD      HL,0
         LD      (EV_N),HL
+        RET
+
+; ---------------------------------------------------------------------
+; EVALCROSS - 細い三角形が、ほかの犬のなわばりのマスのあいだを
+;   すり抜けていないか (C# 版の CrossesOther)。
+;   マスの中心だけで見ると、高さが 1 マスもない三角形はなわばりを素通り
+;   できてしまう。そこで、同じ犬のなわばりで隣り合う 2 マス (横・縦・斜め)
+;   の中心を結ぶ線分が、三角形の内側 (辺は含まない) を通っていたら
+;   作れない三角形にする。辺や頂点で接しているだけ (共有) なら引っかからない。
+;   線分と三角形が分かれているかは分離軸で調べる:
+;     - 三角形の辺: 2 マスとも同じ辺の外側か辺の上 (ARR_INTRI の bit4..6)
+;     - 線分の向き: 3 つの頂点がすべて線分の片側 (線上を含む)
+;   EVALPASS の 3 回のあとに呼ぶ。
+;   出力: 横切っていたら EV_N = 0, EVAL_OTHER = 1
+; ---------------------------------------------------------------------
+EVALCROSS:
+        ; 斜めの線分に使う、頂点の y-x+32 と x+y の最小・最大
+        LD      A,(TRI_AY)
+        LD      HL,TRI_AX
+        SUB     (HL)
+        ADD     A,32
+        LD      B,A
+        LD      C,A
+        LD      A,(TRI_BY)
+        LD      HL,TRI_BX
+        SUB     (HL)
+        ADD     A,32
+        CALL    MINMAXBC
+        LD      A,(TRI_CY)
+        LD      HL,TRI_CX
+        SUB     (HL)
+        ADD     A,32
+        CALL    MINMAXBC
+        LD      A,B
+        LD      (EC_DMIN),A
+        LD      A,C
+        LD      (EC_DMAX),A
+        LD      A,(TRI_AY)
+        LD      HL,TRI_AX
+        ADD     A,(HL)
+        LD      B,A
+        LD      C,A
+        LD      A,(TRI_BY)
+        LD      HL,TRI_BX
+        ADD     A,(HL)
+        CALL    MINMAXBC
+        LD      A,(TRI_CY)
+        LD      HL,TRI_CX
+        ADD     A,(HL)
+        CALL    MINMAXBC
+        LD      A,B
+        LD      (EC_SMIN),A
+        LD      A,C
+        LD      (EC_SMAX),A
+
+        LD      A,(EV_Y0)
+        LD      (EV_CY),A
+.rowlp:
+        CALL    VBPOLL
+        LD      A,(EV_X0)
+        LD      (EV_CX),A
+        LD      B,A
+        LD      A,(EV_CY)
+        LD      C,A
+        CALL    CELLIDX
+        LD      (EC_IDX),HL
+.scan:
+        ; 空きマスは短いループで読み飛ばす (ほとんどのマスはここで終わる)
+        LD      HL,(EC_IDX)
+        LD      DE,ARR_TERR
+        ADD     HL,DE
+        LD      A,(EV_X1)
+        LD      C,A
+        LD      A,(EV_CX)
+        LD      B,A
+.skip:
+        LD      A,(HL)
+        CP      0xFF
+        JR      NZ,.found
+        LD      A,B
+        CP      C
+        JP      Z,.rowend               ; 行の右端まで空きマス
+        INC     B
+        INC     HL
+        JR      .skip
+.found:
+        LD      (EC_T),A
+        LD      A,B
+        LD      (EV_CX),A
+        LD      DE,ARR_TERR
+        OR      A
+        SBC     HL,DE
+        LD      (EC_IDX),HL
+        LD      A,(EC_T)
+        LD      HL,EVAL_ID
+        CP      (HL)
+        JP      Z,.cellnext             ; 自分のなわばり
+
+        ; --- 右 (+1,0): 線分の向きで分かれるのは y が箱の上端か下端のとき
+        LD      A,(EV_CX)
+        LD      HL,EV_X1
+        CP      (HL)
+        JR      NC,.down                ; 右は箱の外
+        LD      A,(EV_CY)
+        LD      HL,EV_Y0
+        CP      (HL)
+        JR      Z,.down
+        LD      HL,EV_Y1
+        CP      (HL)
+        JR      Z,.down
+        LD      DE,1
+        CALL    ECPAIR
+        JP      NZ,.hit
+.down:
+        ; --- 下 (0,+1): 分かれるのは x が箱の左端か右端のとき
+        LD      A,(EV_CY)
+        LD      HL,EV_Y1
+        CP      (HL)
+        JP      NC,.cellnext            ; 下の 3 方向はどれも箱の外
+        LD      A,(EV_CX)
+        LD      HL,EV_X0
+        CP      (HL)
+        JR      Z,.dr
+        LD      HL,EV_X1
+        CP      (HL)
+        JR      Z,.dr
+        LD      DE,32
+        CALL    ECPAIR
+        JP      NZ,.hit
+.dr:
+        ; --- 右下 (+1,+1): 分かれるのは y-x が頂点の y-x の範囲の端か外のとき
+        LD      A,(EV_CX)
+        LD      HL,EV_X1
+        CP      (HL)
+        JR      NC,.dl                  ; 右下は箱の外
+        LD      B,A
+        LD      A,(EV_CY)
+        SUB     B
+        ADD     A,32
+        LD      HL,EC_DMIN
+        CP      (HL)
+        JR      C,.dl
+        JR      Z,.dl
+        LD      HL,EC_DMAX
+        CP      (HL)
+        JR      NC,.dl
+        LD      DE,33
+        CALL    ECPAIR
+        JP      NZ,.hit
+.dl:
+        ; --- 左下 (-1,+1): 分かれるのは x+y が頂点の x+y の範囲の端か外のとき
+        LD      A,(EV_CX)
+        LD      HL,EV_X0
+        CP      (HL)
+        JP      Z,.cellnext             ; 左下は箱の外
+        LD      B,A
+        LD      A,(EV_CY)
+        ADD     A,B
+        LD      HL,EC_SMIN
+        CP      (HL)
+        JP      C,.cellnext
+        JP      Z,.cellnext
+        LD      HL,EC_SMAX
+        CP      (HL)
+        JP      NC,.cellnext
+        LD      DE,31
+        CALL    ECPAIR
+        JP      NZ,.hit
+.cellnext:
+        LD      A,(EV_CX)
+        LD      HL,EV_X1
+        CP      (HL)
+        JR      NC,.rowend              ; 行の右端
+        INC     A
+        LD      (EV_CX),A
+        LD      HL,(EC_IDX)
+        INC     HL
+        LD      (EC_IDX),HL
+        JP      .scan
+.rowend:
+        LD      A,(EV_CY)
+        INC     A
+        LD      (EV_CY),A
+        LD      HL,EV_Y1
+        CP      (HL)
+        JP      C,.rowlp
+        JP      Z,.rowlp
+        RET
+.hit:
+        LD      HL,0
+        LD      (EV_N),HL
+        LD      A,1
+        LD      (EVAL_OTHER),A
+        RET
+
+; ---------------------------------------------------------------------
+; ECPAIR - マス EC_IDX と EC_IDX+DE が同じ犬のなわばりで、
+;   どの辺についても「2 マスとも外側か辺の上」になっていないか
+;   出力: NZ なら線分が三角形の内側を通る / 壊す: A, DE, HL
+; ---------------------------------------------------------------------
+ECPAIR:
+        LD      HL,(EC_IDX)
+        ADD     HL,DE
+        PUSH    HL
+        LD      DE,ARR_TERR
+        ADD     HL,DE
+        LD      A,(EC_T)
+        CP      (HL)
+        POP     HL
+        JR      NZ,.no                  ; 同じ犬のなわばりではない
+        LD      DE,ARR_INTRI
+        ADD     HL,DE
+        LD      A,(HL)
+        LD      HL,(EC_IDX)
+        ADD     HL,DE
+        AND     (HL)
+        AND     0x70
+        JR      NZ,.no                  ; どこかの辺で 2 つとも外側か辺の上
+        OR      1
+        RET
+.no:
+        XOR     A
+        RET
+
+; ---------------------------------------------------------------------
+; MINMAXBC - A で B (最小) と C (最大) を更新する (符号なし)
+; ---------------------------------------------------------------------
+MINMAXBC:
+        CP      B
+        JR      NC,.nomin
+        LD      B,A
+.nomin:
+        CP      C
+        RET     C
+        RET     Z
+        LD      C,A
         RET
 
 ; ---------------------------------------------------------------------

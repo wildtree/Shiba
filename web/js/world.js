@@ -32,6 +32,28 @@ function newDog() {
   };
 }
 
+const CrossDX = [1, 0, 1, -1], CrossDY = [0, 1, 1, 1];
+
+// 線分 (px,py)-(qx,qy) が三角形の内側(辺は含まない)を通るか。分離軸で調べる。
+function segmentInside(A, B, C, s, px, py, qx, qy) {
+  // 三角形の辺: 両端とも辺の外側か辺の上なら、内側には入らない (s を掛けると内側が正)
+  if (outOrOn(A, B, s, px, py, qx, qy) || outOrOn(B, C, s, px, py, qx, qy) || outOrOn(C, A, s, px, py, qx, qy))
+    return false;
+  // 線分の向き: 3 つの頂点がすべて線分の片側(線上を含む)にあれば、内側は線分に触れない
+  const ux = qx - px, uy = qy - py;
+  const ca = ux * (A.y - py) - uy * (A.x - px);
+  const cb = ux * (B.y - py) - uy * (B.x - px);
+  const cc = ux * (C.y - py) - uy * (C.x - px);
+  if ((ca >= 0 && cb >= 0 && cc >= 0) || (ca <= 0 && cb <= 0 && cc <= 0)) return false;
+  return true;
+}
+
+function outOrOn(P, Q, s, px, py, qx, qy) {
+  const ep = s * ((Q.x - P.x) * (py - P.y) - (Q.y - P.y) * (px - P.x));
+  const eq = s * ((Q.x - P.x) * (qy - P.y) - (Q.y - P.y) * (qx - P.x));
+  return ep <= 0 && eq <= 0;
+}
+
 function removeFrom(list, v) {
   const i = list.indexOf(v);
   if (i < 0) return false;
@@ -304,6 +326,15 @@ class World {
         if (prev.isPlayer) this._popupAt(pole.x, pole.y, "LOST!", 0xFF6060);
       }
       pole.owner = d.id;
+    } else {
+      // なわばりの頂点になった電柱は共有できるが、印は 1 匹分だけ。
+      // ほかの犬がつけていた印は消える (上書き)
+      for (const o of this.dogs) {
+        if (o === d || !removeFrom(o.chain, idx)) continue;
+        if (d.isPlayer || o.isPlayer) Audio.play(Sfx.Overwrite);
+        if (d.isPlayer) this._ach("OVERWRITE");
+        if (o.isPlayer) this._popupAt(pole.x, pole.y, "LOST!", 0xFF6060);
+      }
     }
     removeFrom(d.chain, idx);
     d.chain.push(idx);
@@ -341,9 +372,15 @@ class World {
       const p = this.poles[i];
       if (this.terr[p.y * FW + p.x] !== d.id || (p.locked && p.owner === d.id)) continue;
       p.locked = true; p.owner = d.id;
-      // なわばりに取り込まれた電柱についていた、ほかの犬の印は解除する
-      for (const o of this.dogs)
-        if (o !== d && removeFrom(o.chain, i) && o.isPlayer) this._popupAt(p.x, p.y, "LOST!", 0xFF6060);
+      // なわばりに取り込まれた電柱についていた、ほかの犬の印は解除する。
+      // おしっこ中の印も同じ扱いにする (3 秒の間に取り込まれたのに、終わったら印がつくのはおかしい)。
+      // すでに取り込まれている電柱におしっこをする(電柱の共有)のはかまわない
+      for (const o of this.dogs) {
+        if (o === d) continue;
+        let lost = removeFrom(o.chain, i);
+        if (o.peePole === i) { o.peeT = 0; o.peePole = -1; lost = true; }
+        if (lost && o.isPlayer) this._popupAt(p.x, p.y, "LOST!", 0xFF6060);
+      }
     }
 
     if (d.isPlayer) {
@@ -427,7 +464,27 @@ class World {
         }
       }
     if (n === 0 || other) return -1;
+    if (!steal && this._crossesOther(id, A, B, C, area2, minX, maxX, minY, maxY)) return -1;
     return n;
+  }
+
+  // 細い三角形が、ほかの犬のなわばりのマスの中心と中心のあいだをすり抜けていないか (World.cs の CrossesOther)。
+  // 同じ犬のなわばりで隣り合う(斜めも含む) 2 マスの中心を結ぶ線分が、三角形の内側(辺は含まない)を通っていたら「横切っている」。
+  // 辺や頂点で接しているだけ(共有)なら、その線分は辺の外側か辺の上にしかないので引っかからない。
+  _crossesOther(id, A, B, C, area2, minX, maxX, minY, maxY) {
+    const s = area2 > 0 ? 1 : -1;
+    for (let y = minY; y <= maxY; y++)
+      for (let x = minX; x <= maxX; x++) {
+        const t = this.terr[y * FW + x];
+        if (t < 0 || t === id) continue;
+        for (let k = 0; k < 4; k++) {
+          const qx = x + CrossDX[k], qy = y + CrossDY[k];
+          // 箱の外へ出る線分は、三角形の内側には届かない
+          if (qx < minX || qx > maxX || qy > maxY || this.terr[qy * FW + qx] !== t) continue;
+          if (segmentInside(A, B, C, s, x, y, qx, qy)) return true;
+        }
+      }
+    return false;
   }
 
   _loseLife() {

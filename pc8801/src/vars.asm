@@ -335,6 +335,20 @@ EV_W            EQU _V
 _V              EQU _V + 1
 EV_T1           EQU _V
 _V              EQU _V + 2
+EV_EB           EQU _V                  ; EVALPASS 2 回目: そのマスの「辺の外側か辺の上」ビット
+_V              EQU _V + 1
+EC_IDX          EQU _V                  ; EVALCROSS: いま見ているマスの添字
+_V              EQU _V + 2
+EC_T            EQU _V                  ; EVALCROSS: そのマスのなわばりの持ち主
+_V              EQU _V + 1
+EC_DMIN         EQU _V                  ; EVALCROSS: 頂点の y-x+32 の最小・最大
+_V              EQU _V + 1
+EC_DMAX         EQU _V
+_V              EQU _V + 1
+EC_SMIN         EQU _V                  ; EVALCROSS: 頂点の x+y の最小・最大
+_V              EQU _V + 1
+EC_SMAX         EQU _V
+_V              EQU _V + 1
 AI_SCORE        EQU _V
 _V              EQU _V + 2
 AI_BW           EQU _V
@@ -499,6 +513,10 @@ _V              EQU _V + 1
 GP_BY           EQU _V
 _V              EQU _V + 1
 RFOPOLE         EQU _V
+_V              EQU _V + 1
+SSID            EQU _V                  ; STEALSHARED: 印をつけた犬の ID
+_V              EQU _V + 1
+SSHIT           EQU _V                  ; STEALSHARED: ほかの犬の印を消したら 1
 _V              EQU _V + 1
 CDID            EQU _V
 _V              EQU _V + 1
