@@ -91,7 +91,9 @@ const Input = (() => {
   // 配置の分からない汎用パッド: 4番目=やり直し、9番目=BACK、10番目=START、それ以外は「おしっこ/決定」
   const RawMap = i => i === 3 ? "north" : i === 8 ? "back" : i === 9 ? "start" : "south";
 
+  let padUsed = false;   // このフレームでゲームパッドのボタンが押された
   function pollPads() {
+    padUsed = false;
     if (!navigator.getGamepads) return 0;
     let count = 0;
     const pads = navigator.getGamepads();
@@ -105,7 +107,7 @@ const Input = (() => {
         const name = std ? StdMap[i] : (i < 12 ? RawMap(i) : undefined);
         if (!name) continue;
         const now = gp.buttons[i].pressed;
-        if (now !== !!st.buttons[i]) { st.buttons[i] = now; padButton(name, now); }
+        if (now !== !!st.buttons[i]) { st.buttons[i] = now; padButton(name, now); if (now) padUsed = true; }
       }
       if (gp.axes.length >= 2) {
         const x = gp.axes[0], y = gp.axes[1];
@@ -128,6 +130,7 @@ const Input = (() => {
     get pressedKeys() { return pressed; },
     get anyPressed() { return pressed.length > 0; },
     get padPause() { return padPause; },
+    get padUsed() { return padUsed; },
     endFrame() { pressed.length = 0; padPause = false; },
     pressed(code) { return pressed.includes(code); },
     /** 最後に押された方向キー。 */

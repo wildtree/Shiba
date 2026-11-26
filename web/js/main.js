@@ -107,6 +107,14 @@
     relayout(false);
   }
 
+  // キーボードやゲームパッドを使い始めたら操作パッドをしまって、画面を広く使う
+  function hidePad() {
+    if (!app.touch || pad.touches.size > 0) return;
+    pad.releaseAll(app);
+    app.touch = false;
+    relayout(false);
+  }
+
   // ------------------------------------------------------------ 描画
   function blit(t, dst) {
     const l = Math.round(dst.l), tp = Math.round(dst.t);
@@ -144,15 +152,38 @@
     if (app.touch) pad.draw(sctx, app, app.clock);
   }
 
+  // ------------------------------------------------------------ 画面が暗くならないように
+  // ゲームの最中 (ポーズ中を除く) だけ Screen Wake Lock を持つ。HTTPS (か localhost) でないと使えない。
+  // タブが裏に回ると勝手に放されるので、毎フレーム「持つべきか」を見て取り直す
+  let wakeLock = null, wakeBusy = false;
+  function updateWakeLock() {
+    if (!navigator.wakeLock || wakeBusy) return;
+    const want = document.visibilityState === "visible" && !app.paused &&
+      (app.scene === Scene.StageIntro || app.scene === Scene.Play || app.scene === Scene.StageResult);
+    if (want && !wakeLock) {
+      wakeBusy = true;
+      navigator.wakeLock.request("screen").then(l => {
+        wakeLock = l;
+        l.addEventListener("release", () => { if (wakeLock === l) wakeLock = null; });
+      }).catch(() => { /* 電池が少ないときなどは断られる。次の機会にまた頼む */ })
+        .finally(() => { setTimeout(() => { wakeBusy = false; }, 1000); });
+    } else if (!want && wakeLock) {
+      const l = wakeLock; wakeLock = null;
+      l.release().catch(() => {});
+    }
+  }
+
   // ------------------------------------------------------------ 毎フレーム
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
     last = now;
     app.pads = Input.pollPads();
+    if (Input.padUsed) hidePad();
     if (Input.pressed("KeyM")) Audio.cycleMode();   // BGM → 効果音だけ → 無音
     app.update(dt);
     pad.update(dt);
+    updateWakeLock();
     render();
     Input.endFrame();
     requestAnimationFrame(frame);
@@ -171,6 +202,7 @@
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (GameKeys.has(e.code)) e.preventDefault();
     if (e.repeat) return;
+    hidePad();
     // F: フルスクリーン (ネーム入力では文字として使う)。フルスクリーンにできるのはキー操作の中だけ
     if (e.code === "KeyF" && app.scene !== Scene.NameEntry) toggleFullscreen();
     Input.keyDown(e.code);
