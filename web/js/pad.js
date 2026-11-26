@@ -10,9 +10,11 @@ const PadColor = { Cyan: 0x4FD2FF, Orange: 0xFFA040, Red: 0xFF5A5A, Gray: 0xA8B4
 function rect(l, t, r, b) { return { l, t, r, b, get w() { return this.r - this.l; }, get h() { return this.b - this.t; }, get cx() { return (this.l + this.r) / 2; }, get cy() { return (this.t + this.b) / 2; } }; }
 function rgba(rgb, a) { return `rgba(${(rgb >> 16) & 255},${(rgb >> 8) & 255},${rgb & 255},${a / 255})`; }
 
+// ブラウザの振動は強さを指定できない (Android版の 8/16ms・弱めの強さに当たる手ごたえを、長さで出す)。
+// 短すぎると Pixel などの振動の鋭い端末ではほとんど感じないので、Android版より長めにしてある。
 const Haptics = {
-  tick() { if (navigator.vibrate) try { navigator.vibrate(6); } catch (e) { /* 使えない */ } },
-  click() { if (navigator.vibrate) try { navigator.vibrate(14); } catch (e) { /* 使えない */ } },
+  tick() { if (navigator.vibrate) try { navigator.vibrate(15); } catch (e) { /* 使えない */ } },
+  click() { if (navigator.vibrate) try { navigator.vibrate(25); } catch (e) { /* 使えない */ } },
 };
 
 class TouchPad {
