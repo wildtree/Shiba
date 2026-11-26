@@ -103,14 +103,19 @@ const Input = (() => {
       const std = gp.mapping === "standard";
       let st = prev.get(gp.index);
       if (!st) { st = { buttons: [] }; prev.set(gp.index, st); }
+      if (!st.any) st.any = [];
       for (let i = 0; i < gp.buttons.length; i++) {
+        const now = gp.buttons[i].pressed;
+        // 操作パッドをしまう合図は、ゲームで使わないボタン (トリガーなど) でもよい
+        if (now && !st.any[i]) padUsed = true;
+        st.any[i] = now;
         const name = std ? StdMap[i] : (i < 12 ? RawMap(i) : undefined);
         if (!name) continue;
-        const now = gp.buttons[i].pressed;
-        if (now !== !!st.buttons[i]) { st.buttons[i] = now; padButton(name, now); if (now) padUsed = true; }
+        if (now !== !!st.buttons[i]) { st.buttons[i] = now; padButton(name, now); }
       }
       if (gp.axes.length >= 2) {
         const x = gp.axes[0], y = gp.axes[1];
+        if (Math.max(Math.abs(x), Math.abs(y)) >= 0.5) padUsed = true;
         if (x !== st.ax || y !== st.ay) { st.ax = x; st.ay = y; padAxis(x, y); }
       }
     }
