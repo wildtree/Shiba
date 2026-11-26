@@ -4,6 +4,7 @@ dist/
 android/obj/
 android/bin/
 android/shibajintori.uploadkeystore
+__pycache__
 
 # 配布用の署名 (パスワードと鍵そのもの)
 android/signing.props
