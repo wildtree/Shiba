@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>柴犬陣取りゲーム - Shiba Jintori</title>
+<meta name="description" content="柴犬を操作して電柱におしっこをひっかけ、3本の電柱で囲んだ三角形をなわばりにする陣取りゲーム">
+<meta name="theme-color" content="#1B2033">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="柴犬陣取り">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000; }
+  body { position: fixed; inset: 0; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  #screen { position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; height: 100dvh; display: block;
+            touch-action: none; image-rendering: pixelated; image-rendering: crisp-edges; outline: none; }
+  #update { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 10;
+            display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center;
+            max-width: calc(100vw - 24px); box-sizing: border-box; padding: 10px 14px;
+            background: rgba(27, 32, 51, 0.96); color: #fff; border: 2px solid #FFD840; border-radius: 8px;
+            font: 14px/1.4 system-ui, sans-serif; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); }
+  #update[hidden] { display: none; }
+  #update button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid #FFD840; cursor: pointer; }
+  #update-now { background: #FFD840; color: #1B2033; font-weight: bold; }
+  #update-later { background: transparent; color: #FFD840; }
+  noscript { color: #fff; font: 16px sans-serif; position: absolute; top: 40%; width: 100%; text-align: center; }
+</style>
+</head>
+<body>
+<canvas id="screen" tabindex="0"></canvas>
+<div id="update" hidden role="status">
+  <span class="msg">新しいバージョンがあります (更新すると今のゲームは終わります)<br>A new version is available.</span>
+  <button id="update-now" type="button">更新する / Update</button>
+  <button id="update-later" type="button">あとで / Later</button>
+</div>
+<noscript>JavaScript を有効にしてください / Please enable JavaScript.</noscript>
+<script src="version.js"></script>
+<script src="js/data.js"></script>
+<script src="js/gfx.js"></script>
+<script src="js/art.js"></script>
+<script src="js/save.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/world.js"></script>
+<script src="js/input.js"></script>
+<script src="js/app.js"></script>
+<script src="js/pad.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

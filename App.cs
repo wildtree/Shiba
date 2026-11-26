@@ -49,7 +49,7 @@ public sealed partial class App
     static string FormatVersion()
     {
         var v = typeof(App).Assembly.GetName().Version;
-        return v == null ? "1.0.4" : $"{v.Major}.{v.Minor}.{v.Build}";
+        return v == null ? "1.0.5" : $"{v.Major}.{v.Minor}.{v.Build}";
     }
 #if !ANDROID
     float _padKeepAlive;   // PC版のゲームパッド維持用
@@ -336,8 +336,8 @@ public sealed partial class App
                         Audio.Play(Sfx.StageClear);
                         StageClearAchievements(w);
                     }
-                    if (_score >= 100000) Achievements.Unlock("SCORE_100K");
                     else Audio.Play(Sfx.StageFail);
+                    if (_score >= 100000) Achievements.Unlock("SCORE_100K");
                     Go(Scene.StageResult);
                 }
                 break;

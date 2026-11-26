@@ -22,7 +22,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 VERSION="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' ShibaJintori.csproj | head -n 1)"
-VERSION="${VERSION:-1.0.4}"
+VERSION="${VERSION:-1.0.5}"
 MAINTAINER="${MAINTAINER:-Shiba Jintori Developers <shibajintori@localhost>}"
 echo "== Shiba Jintori $VERSION ($ARCH) =="
 
