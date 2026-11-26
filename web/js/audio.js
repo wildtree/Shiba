@@ -250,7 +250,10 @@ const Audio = (() => {
     get failed() { return failed; },
     get mode() { return mode; },
 
-    /** 最初のタップやキー入力のときに呼ぶ (ブラウザはそれまで音を出させてくれない)。 */
+    /**
+     * 起動直後と、最初のタップやキー入力のときに呼ぶ。ブラウザによっては操作があるまで
+     * 音を出させてくれない (そのときは suspended のまま待ち、操作のときに resume する)。
+     */
     unlock() {
       if (failed) return;
       if (!ctx) {

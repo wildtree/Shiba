@@ -258,6 +258,11 @@
   if (window.matchMedia && matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches) app.touch = true;
   relayout(false);
   requestAnimationFrame(t => { last = t; requestAnimationFrame(frame); });
+  // 起動してすぐ音を出してみる。ブラウザが許していれば (よく遊んでいるサイト、ホーム画面に
+  // 追加したアプリなど) そのまま BGM が始まる。許されなければ止まったままで待ち、最初の
+  // キー入力やタップで鳴りはじめる (unlock が resume する)。曲の音を作る処理は少し重いので、
+  // 最初の画面を出してから行う
+  setTimeout(() => Audio.unlock(), 100);
 
   // ------------------------------------------------------------ PWA: オフライン用のキャッシュと、更新の知らせ
   const banner = document.getElementById("update");
