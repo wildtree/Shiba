@@ -76,10 +76,11 @@ READKEYS:
         RET
 
 ; ---------------------------------------------------------------------
-; READJOY - ジョイスティックを SSG の I/O ポートから読む
-;   レジスタ 0Eh を読む (bit0 上 / bit1 下 / bit2 左 / bit3 右)
-;   レジスタ 0Fh の bit0/bit1 がトリガ 1/2。いずれも 0 で押されている。
-;   ポート A/B を入力にするのは SNDINIT の一度きり (レジスタ 07h の bit6/7)。
+; READJOY - ジョイスティックを SSG の I/O ポート A から読む (PC-8801 標準)
+;   レジスタ 0Eh を一度読む: bit0 上 / bit1 下 / bit2 左 / bit3 右 /
+;   bit4 トリガ1 / bit5 トリガ2。いずれも 0 で押されている。
+;   方向が無くてもトリガは読む (棒立ちでボタンだけ押せるように)。
+;   ポート A を入力にするのは SNDINIT の一度きり (レジスタ 07h の bit6)。
 ;   ここで 07h を書くと効果音のミキサ設定を毎ティック消してしまう。
 ; ---------------------------------------------------------------------
 READJOY:
@@ -90,8 +91,8 @@ READJOY:
         IN      A,(P_OPN_DATA)
         LD      (JOYRAW),A              ; 診断表示用 (FF = 何もつながっていない)
         CPL
-        AND     0x0F
-        RET     Z                       ; 何も倒れていない
+        AND     0x3F                    ; bit0-3 方向, bit4-5 トリガ
+        RET     Z                       ; 何も押されていない
         LD      C,A
         LD      HL,KEYNOW
         ; 上
@@ -137,14 +138,9 @@ READJOY:
         LD      (HL),A
         POP     HL
 .nr:
-        ; トリガ
-        LD      A,0x0F
-        OUT     (P_OPN_ADDR),A
-        EX      (SP),HL
-        EX      (SP),HL
-        IN      A,(P_OPN_DATA)
-        CPL
-        AND     0x03
+        ; トリガ (ポート A の bit4/bit5。方向と同じ 1 回読みで取れる)
+        LD      A,C
+        AND     0x30
         RET     Z
         LD      HL,KEYNOW+K_SPACE_P
         LD      A,(HL)
